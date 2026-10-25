@@ -121,6 +121,7 @@ func _run() -> void:
     await _wait(1.5)
     await _shot("17_restaurante_npcs")
     rig.zoom = 1.0
+    await _mission_test(city, rv)
     # aerial
     rig.target = null
     rig.global_position = Vector3(-60, 90, -120)
@@ -147,6 +148,95 @@ func _run() -> void:
     await _shot("11_restaurante")
     print("[autotest] done")
     get_tree().quit()
+
+
+func _place_vehicle(v: Vehicle, pos: Vector3, yaw: float) -> void:
+    v.global_transform = Transform3D(Basis(Vector3.UP, yaw), pos + Vector3.UP * 0.9)
+    v.linear_velocity = Vector3.ZERO
+    v.angular_velocity = Vector3.ZERO
+    v.reset_physics_interpolation()
+
+
+func _mission_test(city: City, rv: Vehicle) -> void:
+    var player: Player = main.player
+    var rig: CameraRig = main.rig
+    var m: Mission = main.mission
+    var giver := m.giver
+    player.teleport(giver.global_transform * Vector3(0.6, 0.2, 2.0))
+    rig.yaw = city_yaw_toward(player.global_position, giver.global_position)
+    await _wait(1.5)
+    print("[autotest] mission can_talk=", m._can_talk(), " prompt=", main.hud.prompt.text)
+    await _shot("18_missao_inicio")
+    main.on_interact()
+    await _wait(1.0)
+    print("[autotest] mission state after talk=", m.state, " frozen=", player.frozen)
+    await _shot("19_missao_dialogo")
+    for i in Mission.LINES.size():
+        main.on_interact()
+        await _wait(0.2)
+    print("[autotest] mission state get_rv=", m.state == Mission.S.GET_RV)
+    await _wait(1.0)
+    await _shot("20_missao_pegar_rv")
+    player.teleport(rv.global_transform * Vector3(2.5, 0.3, 0))
+    await _wait(0.5)
+    main.on_interact()
+    await _wait(1.0)
+    print("[autotest] mission in rv=", main.current_vehicle == rv, " drive_lab=", m.state == Mission.S.DRIVE_LAB)
+    _place_vehicle(rv, city.lab_spot + Vector3(30.0, 0.0, -8.0), -PI / 2.0)
+    rig.yaw = PI / 2.0
+    await _wait(2.0)
+    await _shot("21_missao_deserto")
+    _place_vehicle(rv, city.lab_spot, -PI / 2.0)
+    for i in 30:
+        if m.state == Mission.S.COOK:
+            break
+        await _wait(0.2)
+    print("[autotest] mission cook=", m.state == Mission.S.COOK)
+    await _wait(0.5)
+    await _shot("22_missao_laboratorio")
+    for i in 3:
+        m._needle = m._zone_c
+        m.cook_press()
+        await _wait(0.3)
+        if i == 0:
+            await _shot("23_missao_lab_etapa")
+        for j in 20:
+            if m._step_pause <= 0.0:
+                break
+            await _wait(0.2)
+    print("[autotest] mission quality=", m.quality, " deliver=", m.state == Mission.S.DELIVER, " time_left=", m.time_left)
+    _place_vehicle(rv, city.lab_spot + Vector3(40.0, 0.0, -8.0), -PI / 2.0)
+    await _wait(1.5)
+    await _shot("24_missao_entrega")
+    _place_vehicle(rv, city.delivery_spot, PI)
+    for i in 30:
+        if m.state == Mission.S.RESULT:
+            break
+        await _wait(0.2)
+    print("[autotest] mission result success=", m._success, " money=", m.money)
+    await _wait(0.5)
+    await _shot("25_missao_concluida")
+    main.on_interact()
+    await _wait(0.3)
+    print("[autotest] mission back to idle=", m.state == Mission.S.IDLE)
+    # failure path: timeout
+    _place_vehicle(rv, city.lab_spot + Vector3(40.0, 0.0, -8.0), -PI / 2.0)
+    await _wait(0.5)
+    m.state = Mission.S.DELIVER
+    m.time_left = 0.05
+    await _wait(0.5)
+    print("[autotest] mission timeout fail=", m.state == Mission.S.RESULT and not m._success, " body=", m.result_body.text)
+    main.on_interact()
+    await _wait(0.3)
+    print("[autotest] mission retry state get_rv/drive_lab=", m.state)
+    await _wait(0.5)
+    await _shot("26_missao_retry")
+    m.state = Mission.S.IDLE
+    var ex: Vector3 = rv.global_position
+    while main.current_vehicle != null:
+        main.toggle_vehicle()
+        await _wait(0.3)
+    player.teleport(ex + Vector3(0, 0, 6))
 
 
 func city_yaw_toward(from: Vector3, to: Vector3) -> float:

@@ -44,6 +44,8 @@ var restaurant_inside := Vector3.ZERO
 var restaurant_counter := Vector3.ZERO
 var family_house_xf := Transform3D()
 var npc_spots: Array = []
+var lab_spot := Vector3.ZERO
+var delivery_spot := Vector3.ZERO
 
 
 static func line(i: int) -> float:
@@ -71,6 +73,7 @@ func build() -> void:
         for bz in N:
             _build_block(bx, bz)
     _build_highway_props()
+    _build_lab_spot()
     _build_bounds()
 
     var hz := line(HWY_IDX)
@@ -655,6 +658,32 @@ func _build_highway_props() -> void:
     b.build(self, "Desert")
 
 
+func _build_lab_spot() -> void:
+    var wz := line(WEST_IDX)
+    var c := Vector3(-CITY_EDGE - 260.0, 0.0, wz + 8.0)
+    c.y = height_at(c.x, c.z)
+    lab_spot = c
+    var b := GeoBuilder.new()
+    var g := func(dx: float, dz: float) -> Vector3:
+        return Vector3(c.x + dx, height_at(c.x + dx, c.z + dz), c.z + dz)
+    for k in 7:
+        var a := -0.4 + k * 0.55
+        _rock(b, T(g.call(cos(a) * 15.0, 6.0 + sin(a) * 9.0), rng.randf() * TAU), rng.randf_range(1.2, 2.6))
+    var camp: Vector3 = g.call(-4.0, 11.0)
+    b.box(T(camp + Vector3(0, 0.4, 0), 0.2), Vector3(1.8, 0.8, 0.9), M.wood)
+    b.box(T(camp + Vector3(0, 0.82, 0), 0.2), Vector3(1.9, 0.04, 1.0), M.metal, false)
+    for k in 2:
+        var tank: Vector3 = g.call(-1.6 + k * 0.7, 11.6)
+        b.mesh(GeoBuilder.cyl_mesh(0.22, 0.22, 0.9, 10), T(tank + Vector3(0, 0.45, 0)), M.white)
+        b.shape_box(T(tank + Vector3(0, 0.45, 0)), Vector3(0.44, 0.9, 0.44))
+    for k in 3:
+        var barrel: Vector3 = g.call(3.0 + k * 0.9, 12.0 + (k % 2) * 0.6)
+        b.mesh(GeoBuilder.cyl_mesh(0.35, 0.35, 1.0, 12), T(barrel + Vector3(0, 0.5, 0)), M.orange if k == 1 else M.dark_metal)
+        b.shape_box(T(barrel + Vector3(0, 0.5, 0)), Vector3(0.7, 1.0, 0.7))
+    b.mesh(GeoBuilder.cyl_mesh(0.6, 0.7, 0.25, 10), T(g.call(1.0, 9.5) + Vector3(0, 0.12, 0)), M.dark_metal)
+    b.build(self, "LabSpot")
+
+
 func _build_bounds() -> void:
     var body := StaticBody3D.new()
     body.name = "Bounds"
@@ -851,6 +880,7 @@ func _restaurant_block(b: GeoBuilder, cx: float, cz: float) -> void:
 
     for spec in [["gerente", -3.6], ["advogado", 3.6], ["careca", 5.2]]:
         npc_spots.append([spec[0], T(Vector3(door_x + spec[1], y0 + 0.03, z0 - 2.3), PI)])
+    delivery_spot = Vector3(cx + 14.0, y0, cz - 13.5)
     restaurant_door = Vector3(door_x, y0 + 0.1, z0 - 6.0)
     restaurant_inside = Vector3(cx - 2.0, y0 + 0.1, cz + 1.0)
     restaurant_counter = Vector3(cx - 6.0, y0 + 1.5, ctr_z + 1.5)

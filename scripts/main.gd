@@ -6,6 +6,8 @@ var rig: CameraRig
 var hud: Hud
 var vehicles: Array[Vehicle] = []
 var current_vehicle: Vehicle = null
+var npcs: Array[Npc] = []
+var mission: Mission
 
 
 func _ready() -> void:
@@ -28,6 +30,7 @@ func _ready() -> void:
         npc.transform = spot[1]
         npc.watch = player
         add_child(npc)
+        npcs.append(npc)
 
     for spec in [["sedan", city.sedan_spawn], ["rv", city.rv_spawn]]:
         var v := Vehicle.new()
@@ -47,6 +50,13 @@ func _ready() -> void:
 
     hud = Hud.new()
     add_child(hud)
+
+    mission = Mission.new()
+    mission.name = "Mission"
+    add_child(mission)
+    for n in npcs:
+        if n.kind == "gerente":
+            mission.setup(self, n)
     Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
     if "--autotest" in OS.get_cmdline_user_args():
@@ -134,9 +144,15 @@ func toggle_vehicle() -> void:
             rig.set_target(near, near.cam_height, near.cam_distance, true)
 
 
+func on_interact() -> void:
+    if mission.handle_interact():
+        return
+    toggle_vehicle()
+
+
 func _unhandled_input(event: InputEvent) -> void:
     if event.is_action_pressed("interact"):
-        toggle_vehicle()
+        on_interact()
     elif event.is_action_pressed("reset_vehicle"):
         if current_vehicle:
             current_vehicle.reset_upright()

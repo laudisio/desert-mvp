@@ -14,6 +14,7 @@ var leg_l: Node3D
 var leg_r: Node3D
 var arm_l: Node3D
 var arm_r: Node3D
+var frozen := false
 var _phase := 0.0
 
 
@@ -83,10 +84,10 @@ func _build_model() -> void:
 func _physics_process(delta: float) -> void:
     if not is_on_floor():
         velocity.y -= gravity * delta
-    elif Input.is_action_just_pressed("jump"):
+    elif Input.is_action_just_pressed("jump") and not frozen:
         velocity.y = JUMP_VELOCITY
 
-    var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+    var input := Vector2.ZERO if frozen else Input.get_vector("move_left", "move_right", "move_forward", "move_back")
     var yaw := cam_rig.yaw if cam_rig else 0.0
     var forward := Vector3(-sin(yaw), 0, -cos(yaw))
     var right := Vector3(cos(yaw), 0, -sin(yaw))
