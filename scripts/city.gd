@@ -43,6 +43,7 @@ var restaurant_door := Vector3.ZERO
 var restaurant_inside := Vector3.ZERO
 var restaurant_counter := Vector3.ZERO
 var family_house_xf := Transform3D()
+var npc_spots: Array = []
 
 
 static func line(i: int) -> float:
@@ -848,6 +849,8 @@ func _restaurant_block(b: GeoBuilder, cx: float, cz: float) -> void:
         _plant(b, T(Vector3(cx - 23.5 + k * 0.9, y0, cz - 5.0), rng.randf() * TAU))
     b.box(T(Vector3(cx - 12.0, y0 + 0.75, cz + 19.0)), Vector3(2.0, 1.5, 1.4), M.cars[1])
 
+    for spec in [["gerente", -3.6], ["advogado", 3.6], ["careca", 5.2]]:
+        npc_spots.append([spec[0], T(Vector3(door_x + spec[1], y0 + 0.03, z0 - 2.3), PI)])
     restaurant_door = Vector3(door_x, y0 + 0.1, z0 - 6.0)
     restaurant_inside = Vector3(cx - 2.0, y0 + 0.1, cz + 1.0)
     restaurant_counter = Vector3(cx - 6.0, y0 + 1.5, ctr_z + 1.5)
@@ -941,3 +944,5 @@ func _family_house(b: GeoBuilder, xf: Transform3D) -> void:
     _bx(b, xf, Vector3(7.0, y0 + 0.55, 0.5), Vector3(0.08, 1.1, 0.08), M.wood)
     _bx(b, xf, Vector3(7.0, y0 + 1.15, 0.5), Vector3(0.22, 0.24, 0.45), M.dark_metal, false)
     _car_prop(b, xf * T(Vector3(gx, y0, sb - 2.6)), M.family_car)
+    for spec in [["mulher", -2.6, 2.4, 0.2], ["forte", -0.6, 1.8, 0.0], ["adolescente", 1.2, 2.3, -0.2]]:
+        npc_spots.append([spec[0], xf * T(Vector3(spec[1], y0 + 0.01, spec[2]), PI + spec[3])])

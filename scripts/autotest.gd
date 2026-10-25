@@ -111,6 +111,16 @@ func _run() -> void:
     rig.yaw = city_yaw_toward(player.global_position, hxf * Vector3(0, 0, 9.0))
     await _wait(1.5)
     await _shot("13_casa")
+    player.teleport(hxf * Vector3(-0.6, City.CURB + 0.1, -2.2))
+    rig.yaw = city_yaw_toward(player.global_position, hxf * Vector3(-0.6, 1.5, 2.0))
+    rig.zoom = 1.2
+    await _wait(1.5)
+    await _shot("16_familia")
+    player.teleport(city.restaurant_door + Vector3(1.0, 0, 3.2))
+    rig.yaw = city_yaw_toward(player.global_position, city.restaurant_door + Vector3(1.0, 1.5, 8.0))
+    await _wait(1.5)
+    await _shot("17_restaurante_npcs")
+    rig.zoom = 1.0
     # aerial
     rig.target = null
     rig.global_position = Vector3(-60, 90, -120)

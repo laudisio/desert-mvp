@@ -21,6 +21,14 @@ func _ready() -> void:
     player.spawn_point = city.player_spawn.origin + Vector3.UP
     add_child(player)
 
+    for spot in city.npc_spots:
+        var npc := Npc.new()
+        npc.name = "Npc_" + spot[0]
+        npc.setup(spot[0])
+        npc.transform = spot[1]
+        npc.watch = player
+        add_child(npc)
+
     for spec in [["sedan", city.sedan_spawn], ["rv", city.rv_spawn]]:
         var v := Vehicle.new()
         v.name = spec[0]
