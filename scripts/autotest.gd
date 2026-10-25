@@ -90,6 +90,27 @@ func _run() -> void:
     print("[autotest] rv speed=", rv.forward_speed(), " up.y=", rv.global_transform.basis.y.y)
     await _shot("08_rv_drive")
     Input.action_release("move_forward")
+    Input.action_press("move_back")
+    for i in 40:
+        if absf(rv.forward_speed()) < 1.5:
+            break
+        await _wait(0.1)
+    Input.action_release("move_back")
+    await _wait(0.5)
+    main.toggle_vehicle()
+    print("[autotest] exited rv: ", main.current_vehicle == null)
+    await _wait(0.5)
+    var city: City = main.city
+    player.teleport(city.restaurant_inside)
+    rig.yaw = city_yaw_toward(player.global_position, city.restaurant_counter)
+    await _wait(1.5)
+    print("[autotest] inside restaurant player=", player.global_position)
+    await _shot("12_restaurante_dentro")
+    var hxf := city.family_house_xf
+    player.teleport(hxf * Vector3(3.0, City.CURB + 0.1, -3.0))
+    rig.yaw = city_yaw_toward(player.global_position, hxf * Vector3(0, 0, 9.0))
+    await _wait(1.5)
+    await _shot("13_casa")
     # aerial
     rig.target = null
     rig.global_position = Vector3(-60, 90, -120)
@@ -101,6 +122,19 @@ func _run() -> void:
     rig.rotation = Vector3(-0.05, -PI / 2.0, 0)
     await _wait(1.0)
     await _shot("10_mountains")
+    rig.global_position = hxf * Vector3(10.0, 12.0, 32.0)
+    rig.look_at(hxf * Vector3(0, 0, 14.0))
+    await _wait(1.0)
+    await _shot("14_casa_quintal")
+    var rp := city.restaurant_door
+    rig.global_position = rp + Vector3(28.0, 16.0, -22.0)
+    rig.look_at(rp + Vector3(4.0, 0, 8.0))
+    await _wait(1.0)
+    await _shot("15_restaurante_aereo")
+    rig.global_position = rp + Vector3(9.0, 2.2, -5.0)
+    rig.look_at(rp + Vector3(-1.0, 2.6, 6.0))
+    await _wait(1.0)
+    await _shot("11_restaurante")
     print("[autotest] done")
     get_tree().quit()
 

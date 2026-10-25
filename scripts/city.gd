@@ -15,6 +15,8 @@ const WORLD_HALF := 985.0
 const HWY_IDX := 2
 const WEST_IDX := 3
 const HWY_END := 940.0
+const RESTAURANT_NAME := "POLLOS DORADOS"
+const RESTAURANT_TAGLINE := "FRIED CHICKEN"
 
 const STUCCO := [
     Color(0.86, 0.74, 0.58), Color(0.80, 0.62, 0.45), Color(0.90, 0.84, 0.72),
@@ -37,6 +39,10 @@ var player_spawn := Transform3D()
 var spawn_yaw := 0.0
 var sedan_spawn := Transform3D()
 var rv_spawn := Transform3D()
+var restaurant_door := Vector3.ZERO
+var restaurant_inside := Vector3.ZERO
+var restaurant_counter := Vector3.ZERO
+var family_house_xf := Transform3D()
 
 
 static func line(i: int) -> float:
@@ -121,6 +127,21 @@ func _make_materials() -> void:
     M.lamp = Mats.emissive("lamp", Color(1.0, 0.95, 0.8), 0.4)
     M.tail = Mats.solid("tail", Color(0.6, 0.05, 0.05), 0.4)
     M.pool = Mats.solid("pool", Color(0.2, 0.55, 0.75), 0.05, 0.1)
+    M.pollo_yellow = Mats.make("pollo_yellow", Color(0.98, 0.82, 0.45), "grain", 0.5, 0.95, "stucco")
+    M.sign_yellow = Mats.solid("sign_yellow", Color(1.0, 0.8, 0.2), 0.5)
+    M.pollo_red = Mats.solid("pollo_red", Color(0.72, 0.12, 0.07), 0.6)
+    M.pollo_tile = Mats.make("pollo_tile", Color(0.78, 0.36, 0.2), "grain", 1.2, 0.85, "rough")
+    M.floor_tile = Mats.make("floor_tile", Color(0.92, 0.86, 0.74), "concrete", 0.6, 0.5)
+    M.steel = Mats.solid("steel", Color(0.75, 0.76, 0.78), 0.3, 0.9)
+    M.booth = Mats.solid("booth", Color(0.62, 0.1, 0.08), 0.5)
+    M.menu_board = Mats.solid("menu_board", Color(0.08, 0.07, 0.06), 0.7)
+    M.ceiling_lamp = Mats.emissive("ceiling_lamp", Color(1.0, 0.94, 0.8), 2.0)
+    M.house_stucco = Mats.make("house_stucco", Color(0.84, 0.74, 0.6), "grain", 0.5, 0.95, "stucco")
+    M.house_trim = Mats.solid("house_trim", Color(0.36, 0.25, 0.17), 0.7)
+    M.house_roof = Mats.make("house_roof", Color(0.36, 0.29, 0.24), "grain", 1.0, 0.95, "rough")
+    M.brick = Mats.make("brick", Color(0.6, 0.34, 0.25), "grain", 1.0, 0.95, "rough")
+    M.lounge = Mats.solid("lounge", Color(0.93, 0.93, 0.9), 0.6)
+    M.family_car = Mats.solid("family_car", Color(0.5, 0.52, 0.38), 0.35, 0.5)
     M.cars = []
     for i in CAR_COLORS.size():
         M.cars.append(Mats.solid("car_%d" % i, CAR_COLORS[i], 0.35, 0.5))
@@ -267,6 +288,8 @@ func _build_block(bx: int, bz: int) -> void:
         _vacant_block(b, cx, cz)
     elif bx == 1 and bz == 3:
         _park_block(b, cx, cz)
+    elif bx == 3 and bz == 2:
+        _restaurant_block(b, cx, cz)
     else:
         for row in 2:
             for k in 3:
@@ -276,7 +299,11 @@ func _build_block(bx: int, bz: int) -> void:
                     xf = T(Vector3(lx, 0.0, cz - BLOCK * 0.5))
                 else:
                     xf = T(Vector3(lx, 0.0, cz + BLOCK * 0.5), PI)
-                _house_lot(b, xf)
+                if bx == 1 and bz == 2 and row == 0 and k == 2:
+                    family_house_xf = xf
+                    _family_house(b, xf)
+                else:
+                    _house_lot(b, xf)
     _street_furniture(b, cx, cz)
     b.build(self, "Block_%d_%d" % [bx, bz])
 
@@ -638,3 +665,279 @@ func _build_bounds() -> void:
         cs.position = d * (WORLD_HALF + 5.0) + Vector3(0, 100, 0)
         body.add_child(cs)
     add_child(body)
+
+
+# ---------------------------------------------------------------- landmarks
+
+func _label(text: String, pos: Vector3, yaw: float, size: int, color: Color, double := false) -> Label3D:
+    var lbl := Label3D.new()
+    lbl.text = text
+    lbl.font_size = size
+    lbl.pixel_size = 0.008
+    lbl.outline_size = 14
+    lbl.modulate = color
+    lbl.double_sided = double
+    lbl.position = pos
+    lbl.rotation.y = yaw
+    add_child(lbl)
+    return lbl
+
+
+func _tilted(b: GeoBuilder, pos: Vector3, size: Vector3, axis: Vector3, angle: float, mat: Material) -> void:
+    b.box(Transform3D(Basis(axis, angle), pos), size, mat, false)
+
+
+func _restaurant_block(b: GeoBuilder, cx: float, cz: float) -> void:
+    var y0 := CURB
+    var H := 4.2
+    var x0 := cx - 16.0
+    var x1 := cx + 4.0
+    var z0 := cz - 3.0
+    var z1 := cz + 11.0
+    var mx := (x0 + x1) * 0.5
+    var mz := (z0 + z1) * 0.5
+    var door_x := cx - 10.0
+    var yellow: Material = M.pollo_yellow
+    var red: Material = M.pollo_red
+
+    # lot: parking, drive-thru lane, patio
+    b.box(T(Vector3(cx, y0 + 0.01, cz)), Vector3(BLOCK, 0.02, BLOCK), M.asphalt, false)
+    for row_z in [cz - 18.0, cz - 9.5]:
+        for k in range(-7, 7):
+            b.box(T(Vector3(cx - 4.0 + k * 2.7, y0 + 0.025, row_z)), Vector3(0.12, 0.01, 4.8), M.line_w, false)
+    b.box(T(Vector3(cx - 20.5, y0 + 0.03, mz)), Vector3(7.0, 0.04, 14.0), M.concrete, false)
+    b.box(T(Vector3(mx, y0 + 0.03, z0 - 1.4)), Vector3(21.0, 0.04, 2.6), M.concrete, false)
+    for zz in [cz - 4.0, cz + 4.0, cz + 12.0]:
+        b.box(T(Vector3(cx + 7.5, y0 + 0.025, zz)), Vector3(0.25, 0.01, 2.2), M.line_y, false)
+    b.box(T(Vector3(cx + 5.0, y0 + 0.08, cz + 4.0)), Vector3(0.35, 0.16, 30.0), M.concrete)
+
+    # floor + walls
+    b.box(T(Vector3(mx, y0 + 0.03, mz)), Vector3(x1 - x0, 0.04, z1 - z0), M.floor_tile, false)
+    var t := 0.3
+    # front wall with windows and a door gap
+    for seg in [[x0, door_x - 1.2], [door_x + 1.2, x1]]:
+        var a: float = seg[0]
+        var c: float = seg[1]
+        var sx := (a + c) * 0.5
+        var w := c - a
+        b.shape_box(T(Vector3(sx, y0 + H * 0.5, z0)), Vector3(w, H, t))
+        b.box(T(Vector3(sx, y0 + 0.45, z0)), Vector3(w, 0.9, t), yellow, false)
+        b.box(T(Vector3(sx, y0 + 1.95, z0)), Vector3(w - 0.2, 2.1, 0.08), M.glass, false)
+        b.box(T(Vector3(sx, y0 + 3.6, z0)), Vector3(w, 1.2, t), yellow, false)
+        var mullions := int(w / 2.6)
+        for k in mullions + 1:
+            b.box(T(Vector3(a + 0.1 + k * (w - 0.2) / maxf(mullions, 1), y0 + 1.95, z0 - 0.05)), Vector3(0.1, 2.1, 0.12), M.dark_metal, false)
+    b.box(T(Vector3(door_x, y0 + 3.4, z0)), Vector3(2.4, 1.6, t), yellow)
+    for sx in [-1.25, 1.25]:
+        b.box(T(Vector3(door_x + sx, y0 + 1.3, z0)), Vector3(0.12, 2.6, 0.35), M.dark_metal, false)
+    b.box(T(Vector3(mx, y0 + 3.05, z0 - 0.17)), Vector3(x1 - x0, 0.3, 0.06), red, false)
+    # back, sides, kitchen partition
+    b.box(T(Vector3(mx, y0 + H * 0.5, z1)), Vector3(x1 - x0, H, t), yellow)
+    b.box(T(Vector3(x0, y0 + H * 0.5, mz)), Vector3(t, H, z1 - z0), yellow)
+    b.box(T(Vector3(x1, y0 + H * 0.5, mz)), Vector3(t, H, z1 - z0), yellow)
+    for k in 3:
+        b.box(T(Vector3(x0 - 0.17, y0 + 1.9, z0 + 2.0 + k * 3.0)), Vector3(0.06, 1.6, 2.2), M.glass, false)
+    b.box(T(Vector3(x1 + 0.17, y0 + 1.5, cz + 8.5)), Vector3(0.06, 1.2, 1.6), M.glass, false)
+    b.box(T(Vector3(x1 + 0.6, y0 + 1.0, cz + 8.5)), Vector3(0.6, 0.08, 1.8), M.steel, false)
+    _label("DRIVE-THRU", Vector3(x1 + 0.2, y0 + 2.6, cz + 8.5), PI * 0.5, 70, Color(0.85, 0.12, 0.06))
+    var pz := cz + 7.5
+    b.box(T(Vector3((x0 + cx + 1.0) * 0.5, y0 + H * 0.5, pz)), Vector3(cx + 1.0 - x0, H, 0.2), yellow)
+    b.box(T(Vector3((cx + 3.0 + x1) * 0.5, y0 + H * 0.5, pz)), Vector3(x1 - cx - 3.0, H, 0.2), yellow)
+    b.box(T(Vector3(cx + 2.0, y0 + 3.4, pz)), Vector3(2.0, 1.6, 0.2), yellow, false)
+
+    # roof: flat deck + red tile mansard + entrance tower
+    b.box(T(Vector3(mx, y0 + H + 0.15, mz)), Vector3(x1 - x0 + 0.6, 0.3, z1 - z0 + 0.6), M.roof_flat)
+    var ang := 0.42
+    var bw := 2.6
+    var ry := y0 + H + 0.15
+    _tilted(b, Vector3(mx, ry, z0 - 0.75), Vector3(x1 - x0 + 3.2, 0.14, bw), Vector3.RIGHT, -ang, M.pollo_tile)
+    _tilted(b, Vector3(mx, ry, z1 + 0.75), Vector3(x1 - x0 + 3.2, 0.14, bw), Vector3.RIGHT, ang, M.pollo_tile)
+    _tilted(b, Vector3(x0 - 0.75, ry, mz), Vector3(bw, 0.14, z1 - z0 + 3.2), Vector3.BACK, ang, M.pollo_tile)
+    _tilted(b, Vector3(x1 + 0.75, ry, mz), Vector3(bw, 0.14, z1 - z0 + 3.2), Vector3.BACK, -ang, M.pollo_tile)
+    var tz := z0 - 0.9
+    for sx in [-2.3, 2.3]:
+        b.box(T(Vector3(door_x + sx, y0 + 2.4, tz)), Vector3(0.7, 4.8, 0.7), yellow)
+    b.box(T(Vector3(door_x, y0 + 5.6, tz + 0.35)), Vector3(5.3, 2.6, 1.4), yellow)
+    b.box(T(Vector3(door_x, y0 + 4.2, tz - 0.36)), Vector3(5.3, 0.25, 0.06), red, false)
+    b.mesh(GeoBuilder.prism_mesh(Vector3(5.9, 1.0, 2.0)), T(Vector3(door_x, y0 + 7.4, tz + 0.35)), M.pollo_tile)
+    b.box(T(Vector3(door_x, y0 + 2.9, tz)), Vector3(4.0, 0.15, 1.6), yellow, false)
+    _label(RESTAURANT_NAME, Vector3(door_x, y0 + 5.9, tz - 0.4), PI, 64, Color(0.8, 0.1, 0.05))
+    _label(RESTAURANT_TAGLINE, Vector3(door_x, y0 + 5.15, tz - 0.4), PI, 44, Color(0.35, 0.18, 0.08))
+    _label(RESTAURANT_NAME, Vector3(cx - 1.5, y0 + 3.6, z0 - 0.2), PI, 90, Color(0.8, 0.1, 0.05))
+    for k in 3:
+        _tilted(b, Vector3(x0 + 1.6 + k * 1.9, y0 + 3.0, z0 - 0.55), Vector3(1.7, 0.06, 1.1), Vector3.RIGHT, -0.5, red)
+
+    # interior
+    var ctr_z := cz + 4.8
+    b.box(T(Vector3(cx - 5.0, y0 + 0.55, ctr_z)), Vector3(14.0, 1.1, 0.8), red)
+    b.box(T(Vector3(cx - 5.0, y0 + 1.13, ctr_z)), Vector3(14.2, 0.06, 1.0), M.steel, false)
+    for k in 3:
+        b.box(T(Vector3(cx - 9.0 + k * 4.0, y0 + 1.3, ctr_z)), Vector3(0.45, 0.3, 0.35), M.dark_metal, false)
+    var items := [
+        "COMBO 1 .... $5.99\nCOMBO 2 .... $7.49\nCOMBO 3 .... $8.99",
+        RESTAURANT_NAME + "\n" + RESTAURANT_TAGLINE,
+        "CURLY FRIES .. $1.99\nCORN ........ $1.49\nTEA ......... $0.99",
+    ]
+    for k in 3:
+        var mxk := cx - 9.0 + k * 4.0
+        b.box(T(Vector3(mxk, y0 + 2.9, pz - 0.14)), Vector3(3.6, 1.2, 0.06), M.menu_board, false)
+        _label(items[k], Vector3(mxk, y0 + 2.9, pz - 0.18), PI, 30 if k != 1 else 36, Color(1.0, 0.86, 0.45) if k == 1 else Color(0.95, 0.95, 0.9))
+    for k in 3:
+        b.box(T(Vector3(cx - 11.0 + k * 3.5, y0 + 0.5, z1 - 0.7)), Vector3(1.6, 1.0, 1.0), M.steel)
+        b.box(T(Vector3(cx - 11.0 + k * 3.5, y0 + 1.75, z1 - 0.5)), Vector3(1.6, 0.9, 0.6), M.steel, false)
+    b.box(T(Vector3(cx + 0.5, y0 + 0.5, cz + 9.0)), Vector3(3.0, 1.0, 1.0), M.steel)
+    for row in 2:
+        for k in 4:
+            var p := Vector3(x0 + 1.6 + k * 2.8, y0, z0 + 1.6 + row * 2.6)
+            b.mesh(GeoBuilder.cyl_mesh(0.55, 0.55, 0.06, 14), T(p + Vector3(0, 0.76, 0)), M.lounge)
+            b.mesh(GeoBuilder.cyl_mesh(0.06, 0.06, 0.74, 6), T(p + Vector3(0, 0.37, 0)), M.dark_metal)
+            b.shape_box(T(p + Vector3(0, 0.4, 0)), Vector3(1.0, 0.8, 1.0))
+            for sz in [-0.8, 0.8]:
+                b.box(T(p + Vector3(0, 0.25, sz)), Vector3(0.45, 0.5, 0.45), M.booth, false)
+                b.box(T(p + Vector3(0, 0.75, sz + signf(sz) * 0.2)), Vector3(0.45, 0.6, 0.06), M.booth, false)
+    for lx in [cx - 12.5, cx - 6.0, cx + 0.5]:
+        for lz in [cz - 0.5, cz + 3.0, cz + 9.0]:
+            b.box(T(Vector3(lx, y0 + H - 0.03, lz)), Vector3(1.2, 0.04, 0.6), M.ceiling_lamp, false)
+    for lp in [Vector3(cx - 11.0, y0 + 3.5, cz + 1.5), Vector3(cx - 1.0, y0 + 3.5, cz + 1.5), Vector3(cx - 5.0, y0 + 3.5, cz + 9.2)]:
+        var l := OmniLight3D.new()
+        l.position = lp
+        l.omni_range = 9.0
+        l.light_energy = 1.4
+        l.light_color = Color(1.0, 0.9, 0.75)
+        l.shadow_enabled = false
+        add_child(l)
+
+    # patio tables with umbrellas
+    for k in 3:
+        var p := Vector3(cx - 20.5, y0, z0 + 2.0 + k * 4.2)
+        b.mesh(GeoBuilder.cyl_mesh(0.6, 0.6, 0.06, 12), T(p + Vector3(0, 0.76, 0)), M.lounge)
+        b.mesh(GeoBuilder.cyl_mesh(0.05, 0.05, 2.5, 6), T(p + Vector3(0, 1.25, 0)), M.metal)
+        b.mesh(GeoBuilder.cyl_mesh(0.05, 1.5, 0.5, 10), T(p + Vector3(0, 2.6, 0)), red if k % 2 == 0 else yellow)
+        b.shape_box(T(p + Vector3(0, 0.4, 0)), Vector3(1.2, 0.8, 1.2))
+        for sx in [-1.0, 1.0]:
+            b.box(T(p + Vector3(sx * 1.0, 0.45, 0)), Vector3(0.4, 0.08, 1.4), M.wood, false)
+
+    # drive-thru menu board
+    var mb := Vector3(cx + 9.8, y0, cz + 14.0)
+    b.box(T(mb + Vector3(0, 0.6, 0)), Vector3(0.2, 1.2, 0.2), M.dark_metal)
+    b.box(T(mb + Vector3(0, 1.7, 0)), Vector3(0.15, 1.4, 2.0), M.menu_board)
+    _label("MENU", mb + Vector3(-0.1, 2.15, 0), -PI * 0.5, 48, Color(1.0, 0.86, 0.45))
+
+    # pole sign
+    var sp := Vector3(cx + 19.0, y0, cz - 20.0)
+    b.mesh(GeoBuilder.cyl_mesh(0.22, 0.28, 9.0, 10), T(sp + Vector3(0, 4.5, 0)), M.metal)
+    b.shape_box(T(sp + Vector3(0, 4.5, 0)), Vector3(0.5, 9.0, 0.5))
+    var disc := Basis(Vector3.RIGHT, PI * 0.5)
+    b.mesh(GeoBuilder.cyl_mesh(2.5, 2.5, 0.45, 28), Transform3D(disc, sp + Vector3(0, 10.4, 0)), red)
+    b.mesh(GeoBuilder.cyl_mesh(2.2, 2.2, 0.5, 28), Transform3D(disc, sp + Vector3(0, 10.4, 0)), M.sign_yellow)
+    var sign_text := RESTAURANT_NAME.replace(" ", "\n")
+    _label(sign_text, sp + Vector3(0, 10.75, -0.27), PI, 96, Color(0.8, 0.1, 0.05))
+    _label(sign_text, sp + Vector3(0, 10.75, 0.27), 0.0, 96, Color(0.8, 0.1, 0.05))
+    _label(RESTAURANT_TAGLINE, sp + Vector3(0, 9.25, -0.27), PI, 40, Color(0.35, 0.18, 0.08))
+
+    # parked cars + landscaping
+    for k in 4:
+        var car_x := cx - 4.0 + rng.randi_range(-7, 5) * 2.7 + 1.35
+        _car_prop(b, T(Vector3(car_x, y0 + 0.02, cz - 18.0), PI if k % 2 == 0 else 0.0), M.cars[rng.randi() % M.cars.size()])
+    for k in 2:
+        var car_x2 := cx - 4.0 + rng.randi_range(-7, 5) * 2.7 + 1.35
+        _car_prop(b, T(Vector3(car_x2, y0 + 0.02, cz - 9.5)), M.cars[rng.randi() % M.cars.size()])
+    for p in [Vector3(cx - 23.0, y0, cz - 22.0), Vector3(cx + 23.0, y0, cz + 22.0), Vector3(cx - 23.0, y0, cz + 20.0)]:
+        _tree(b, T(p))
+    for k in 6:
+        _plant(b, T(Vector3(cx - 23.5 + k * 0.9, y0, cz - 5.0), rng.randf() * TAU))
+    b.box(T(Vector3(cx - 12.0, y0 + 0.75, cz + 19.0)), Vector3(2.0, 1.5, 1.4), M.cars[1])
+
+    restaurant_door = Vector3(door_x, y0 + 0.1, z0 - 6.0)
+    restaurant_inside = Vector3(cx - 2.0, y0 + 0.1, cz + 1.0)
+    restaurant_counter = Vector3(cx - 6.0, y0 + 1.5, ctr_z + 1.5)
+
+
+func _family_house(b: GeoBuilder, xf: Transform3D) -> void:
+    var y0 := CURB
+    var stucco: Material = M.house_stucco
+    var trim: Material = M.house_trim
+    var sb := 5.0
+    var d := 9.0
+    var h := 2.9
+    var hx0 := -7.0
+    var gx0 := 2.2
+    var hx1 := 7.0
+    var gx := (gx0 + hx1) * 0.5
+
+    # front yard, driveway, walkway
+    _bx(b, xf, Vector3((-7.8 + 2.4) * 0.5, y0 + 0.01, sb * 0.5), Vector3(10.2, 0.02, sb), M.lawn, false)
+    _bx(b, xf, Vector3(5.2, y0 + 0.01, sb * 0.5), Vector3(5.2, 0.02, sb), M.gravel, false)
+    _bx(b, xf, Vector3(gx, y0 + 0.02, sb * 0.5), Vector3(3.8, 0.02, sb), M.concrete, false)
+    _bx(b, xf, Vector3(0.4, y0 + 0.03, 3.4), Vector3(3.6, 0.02, 0.9), M.concrete, false)
+    _bx(b, xf, Vector3(-1.0, y0 + 0.03, 4.2), Vector3(0.9, 0.02, 1.6), M.concrete, false)
+    _bx(b, xf, Vector3(0, y0 + 0.01, sb + 12.0), Vector3(15.6, 0.02, 24.0 - sb - 0.4), M.gravel, false)
+
+    # body + garage
+    _bx(b, xf, Vector3((hx0 + hx1) * 0.5, y0 + h * 0.5, sb + d * 0.5), Vector3(hx1 - hx0, h, d), stucco)
+    _bx(b, xf, Vector3(gx, y0 + 1.1, sb - 0.04), Vector3(3.3, 2.2, 0.1), M.garage, false)
+    for k in 4:
+        _bx(b, xf, Vector3(gx, y0 + 0.3 + k * 0.55, sb - 0.1), Vector3(3.3, 0.03, 0.02), trim, false)
+    _bx(b, xf, Vector3(gx, y0 + 2.3, sb - 0.08), Vector3(3.6, 0.14, 0.14), trim, false)
+    _bx(b, xf, Vector3(gx0, y0 + h * 0.5, sb - 0.06), Vector3(0.18, h, 0.14), trim, false)
+    _bx(b, xf, Vector3(0, y0 + 0.12, sb - 0.04), Vector3(hx1 - hx0, 0.24, 0.1), trim, false)
+
+    # low gable roof with brown fascia + brick chimney
+    var rw := hx1 - hx0 + 1.4
+    b.mesh(GeoBuilder.prism_mesh(Vector3(d + 1.4, 1.2, rw)), xf * T(Vector3(0, y0 + h + 0.6, sb + d * 0.5), PI * 0.5), M.house_roof)
+    _bx(b, xf, Vector3(0, y0 + h - 0.05, sb - 0.68), Vector3(rw, 0.24, 0.08), trim, false)
+    _bx(b, xf, Vector3(0, y0 + h - 0.05, sb + d + 0.68), Vector3(rw, 0.24, 0.08), trim, false)
+    _bx(b, xf, Vector3(0, y0 + h - 0.15, sb + d * 0.5), Vector3(rw, 0.06, d + 1.4), trim, false)
+    _bx(b, xf, Vector3(-5.3, y0 + h + 0.9, sb + d * 0.5 + 1.2), Vector3(1.1, 2.8, 1.1), M.brick)
+    _bx(b, xf, Vector3(-5.3, y0 + h + 2.35, sb + d * 0.5 + 1.2), Vector3(1.3, 0.12, 1.3), M.concrete, false)
+
+    # front windows with shutters, door, porch light
+    var wins := [[-4.6, 2.6, 1.4], [0.9, 1.2, 1.1]]
+    for wdef in wins:
+        var wx: float = wdef[0]
+        var ww: float = wdef[1]
+        var wh: float = wdef[2]
+        _bx(b, xf, Vector3(wx, y0 + 1.6, sb - 0.03), Vector3(ww, wh, 0.06), M.glass, false)
+        _bx(b, xf, Vector3(wx, y0 + 1.6 - wh * 0.5 - 0.05, sb - 0.09), Vector3(ww + 0.2, 0.08, 0.18), trim, false)
+        _bx(b, xf, Vector3(wx, y0 + 1.6, sb - 0.07), Vector3(0.05, wh, 0.04), M.trim, false)
+        for sx in [-1.0, 1.0]:
+            _bx(b, xf, Vector3(wx + sx * (ww * 0.5 + 0.3), y0 + 1.6, sb - 0.06), Vector3(0.5, wh + 0.1, 0.06), trim, false)
+    _bx(b, xf, Vector3(-1.0, y0 + 1.05, sb - 0.04), Vector3(1.0, 2.1, 0.08), M.doors[0], false)
+    _bx(b, xf, Vector3(-1.0, y0 + 2.2, sb - 0.08), Vector3(1.3, 0.12, 0.14), trim, false)
+    _bx(b, xf, Vector3(-0.3, y0 + 1.9, sb - 0.1), Vector3(0.12, 0.22, 0.1), M.lamp, false)
+    _bx(b, xf, Vector3(-1.0, y0 + 0.07, sb - 0.5), Vector3(1.6, 0.14, 1.0), M.concrete, false)
+    for sx in [-1.0, 1.0]:
+        _bx(b, xf, Vector3(sx * (hx1 + 0.03), y0 + 1.6, sb + d * 0.55), Vector3(0.06, 1.1, 1.4), M.glass, false)
+    _bx(b, xf, Vector3(-3.0, y0 + 1.6, sb + d + 0.03), Vector3(2.4, 1.2, 0.06), M.glass, false)
+    _bx(b, xf, Vector3(0.6, y0 + 1.05, sb + d + 0.03), Vector3(1.8, 2.1, 0.06), M.glass, false)
+
+    # back patio + pool
+    _bx(b, xf, Vector3(-1.5, y0 + 0.03, sb + d + 1.2), Vector3(9.0, 0.04, 2.4), M.concrete, false)
+    _bx(b, xf, Vector3(-0.5, y0 + 0.02, 19.6), Vector3(12.0, 0.03, 7.4), M.concrete, false)
+    var pool_c := Vector3(-0.5, y0 + 0.05, 19.6)
+    _bx(b, xf, pool_c, Vector3(5.2, 0.03, 3.6), M.pool, false)
+    for sx in [-1.0, 1.0]:
+        b.mesh(GeoBuilder.cyl_mesh(1.8, 1.8, 0.03, 18), xf * T(pool_c + Vector3(sx * 2.6, 0, 0)), M.pool)
+    _bx(b, xf, pool_c + Vector3(0, 0.04, -1.9), Vector3(5.6, 0.08, 0.25), M.lounge, false)
+    _bx(b, xf, pool_c + Vector3(0, 0.04, 1.9), Vector3(5.6, 0.08, 0.25), M.lounge, false)
+    for k in 2:
+        var lp := Vector3(-5.6 + k * 1.3, y0, 15.6)
+        _bx(b, xf, lp + Vector3(0, 0.3, 0), Vector3(0.7, 0.1, 1.9), M.lounge, false)
+        b.box(xf * Transform3D(Basis(Vector3.RIGHT, -0.6), lp + Vector3(0, 0.55, 0.85)), Vector3(0.7, 0.08, 0.7), M.lounge, false)
+    _bx(b, xf, Vector3(4.2, y0 + 0.5, 15.5), Vector3(1.0, 1.0, 0.6), M.dark_metal)
+    _bx(b, xf, Vector3(3.0, y0 + 0.38, 15.5), Vector3(1.0, 0.06, 1.0), M.wood, false)
+
+    # block walls + side gate
+    var wall_h := 1.7
+    var wz0 := sb + d * 0.5
+    for sx in [-1.0, 1.0]:
+        _bx(b, xf, Vector3(sx * 7.85, y0 + wall_h * 0.5, (wz0 + 23.8) * 0.5), Vector3(0.2, wall_h, 23.8 - wz0), M.block_wall)
+    _bx(b, xf, Vector3(0, y0 + wall_h * 0.5, 23.7), Vector3(15.9, wall_h, 0.2), M.block_wall)
+
+    # landscaping, mailbox, car
+    _tree(b, xf * T(Vector3(-5.5, y0, 2.0)))
+    for p in [Vector3(-2.4, y0, 4.4), Vector3(-6.8, y0, 4.3), Vector3(1.6, y0, 4.4), Vector3(7.3, y0, 2.5)]:
+        _plant(b, xf * T(p, rng.randf() * TAU))
+    _bx(b, xf, Vector3(7.0, y0 + 0.55, 0.5), Vector3(0.08, 1.1, 0.08), M.wood)
+    _bx(b, xf, Vector3(7.0, y0 + 1.15, 0.5), Vector3(0.22, 0.24, 0.45), M.dark_metal, false)
+    _car_prop(b, xf * T(Vector3(gx, y0, sb - 2.6)), M.family_car)
