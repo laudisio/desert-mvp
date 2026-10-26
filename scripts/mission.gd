@@ -1,30 +1,65 @@
 class_name Mission
 extends Node
-## "Primeira Entrega": talk to the manager, drive the RV to the desert,
-## cook in a 3-step timing minigame, then deliver back before the timer runs out.
+## Mission chain: "Primeira Entrega" -> "Ingredientes" -> "Fuga do Deserto".
+## Each chapter: talk to a giver, take a vehicle, cook in the desert lab
+## (timing minigame), plus a chapter-specific leg (delivery, pickups, chase).
 
-enum S { IDLE, TALK, GET_RV, DRIVE_LAB, COOK, DELIVER, RESULT }
+enum S { IDLE, TALK, GET_VEH, PICKUP, DRIVE_LAB, COOK, CHASE, DELIVER, RESULT, DONE }
 
-const TIME_LIMIT := 100.0
 const TALK_RADIUS := 2.8
 const LAB_RADIUS := 8.0
 const DELIVERY_RADIUS := 7.0
-const BASE_PAY := 5000
-const STEPS := ["Aquecer", "Misturar", "Resfriar"]
-const ZONE_W := [0.22, 0.15, 0.1]
-const NEEDLE_SPEED := [0.6, 0.85, 1.1]
-const LINES := [
-    "Você chegou na hora. Gosto de gente pontual.",
-    "Tenho um trabalho discreto para você. Há um trailer estacionado no terreno baldio do bairro.",
-    "Leve-o até o ponto marcado no deserto, a oeste, e prepare a encomenda lá dentro.",
-    "Capriche na qualidade. E depois de pronta, traga para o estacionamento daqui sem demora.",
+const PICKUP_RADIUS := 6.0
+const ESCAPE_DIST := 100.0
+const ESCAPE_HOLD := 3.0
+const RIVAL_DELAY := 2.5
+const STEPS_3 := ["Aquecer", "Misturar", "Resfriar"]
+const STEPS_4 := ["Aquecer", "Misturar", "Filtrar", "Resfriar"]
+const ZONE_3 := [0.22, 0.15, 0.1]
+const ZONE_4 := [0.18, 0.13, 0.1, 0.075]
+const SPEED_3 := [0.6, 0.85, 1.1]
+const SPEED_4 := [0.7, 0.95, 1.2, 1.45]
+const CHAPTERS := [
+    {
+        "title": "Primeira Entrega", "giver": "gerente", "who": "Gerente", "veh": 1, "hard": false,
+        "pay": 5000, "time": 100.0, "where": "na frente do Pollos Dorados", "label": "o gerente",
+        "lines": [
+            "Você chegou na hora. Gosto de gente pontual.",
+            "Tenho um trabalho discreto para você. Há um trailer estacionado no terreno baldio do bairro.",
+            "Leve-o até o ponto marcado no deserto, a oeste, e prepare a encomenda lá dentro.",
+            "Capriche na qualidade. E depois de pronta, traga para o estacionamento daqui sem demora.",
+        ],
+    },
+    {
+        "title": "Ingredientes", "giver": "careca", "who": "Segurança", "veh": 0, "hard": true,
+        "pay": 8000, "time": 150.0, "where": "na frente do Pollos Dorados", "label": "o segurança",
+        "lines": [
+            "O chefe gostou do seu trabalho. Agora a encomenda vai ser maior.",
+            "Precisamos de três caixas: uma na farmácia do centro comercial, uma no ferro-velho da rodovia, a leste, e uma no depósito da estrada de terra, a oeste.",
+            "Pegue o sedan. Você tem dois minutos e meio para buscar tudo e chegar ao laboratório no deserto.",
+            "Dessa vez são quatro etapas no laboratório. Não erre.",
+        ],
+    },
+    {
+        "title": "Fuga do Deserto", "giver": "gerente", "who": "Gerente", "veh": 1, "hard": false,
+        "pay": 12000, "time": 0.0, "where": "na frente do Pollos Dorados", "label": "o gerente",
+        "lines": [
+            "Temos um problema. Um grupo rival descobriu o nosso ponto no deserto.",
+            "Mesmo assim, preciso de mais um lote. Leve o trailer até o acampamento e prepare a encomenda.",
+            "Se alguém aparecer, não pare. Despiste quem estiver atrás de você antes de voltar.",
+            "Não quero ninguém seguindo você até o meu restaurante.",
+        ],
+    },
 ]
 
 var main: Node
 var city: City
 var player: Player
 var rv: Vehicle
+var sedan: Vehicle
+var veh: Vehicle
 var giver: Npc
+var chapter := 0
 var state := S.IDLE
 var time_left := 0.0
 var quality := 0.0
@@ -41,6 +76,16 @@ var _step_pause := 0.0
 var _flip_time := 0.0
 var _toast_time := 0.0
 var _success := false
+var _timed := false
+var _picked := 0
+var _crates: Array[Node3D] = []
+var rival: Vehicle
+var health := 100.0
+var _rival_wait := 0.0
+var _escape_time := 0.0
+var _hit_cd := 0.0
+var _rel_prev := 0.0
+var _done_time := 0.0
 
 var ui: CanvasLayer
 var objective: Label
@@ -52,6 +97,10 @@ var arrow: Polygon2D
 var dist_lbl: Label
 var dialog: ColorRect
 var dialog_text: Label
+var who_lbl: Label
+var chase_panel: ColorRect
+var health_fill: ColorRect
+var chase_lbl: Label
 var cook_panel: ColorRect
 var cook_title: Label
 var cook_feedback: Label
@@ -66,14 +115,46 @@ var marker_gem: MeshInstance3D
 var marker_ring: MeshInstance3D
 
 
-func setup(main_node: Node, giver_npc: Npc) -> void:
+func setup(main_node: Node) -> void:
     main = main_node
     city = main.city
     player = main.player
+    sedan = main.vehicles[0]
     rv = main.vehicles[1]
-    giver = giver_npc
     _build_ui()
     _build_marker()
+    _build_crates()
+    _set_chapter(0)
+
+
+func ch() -> Dictionary:
+    return CHAPTERS[mini(chapter, CHAPTERS.size() - 1)]
+
+
+func lines() -> Array:
+    return ch().lines
+
+
+func _set_chapter(i: int) -> void:
+    chapter = i
+    if chapter >= CHAPTERS.size():
+        state = S.DONE
+        _done_time = 6.0
+        return
+    state = S.IDLE
+    veh = main.vehicles[ch().veh]
+    for n: Npc in main.npcs:
+        if n.kind == ch().giver:
+            giver = n
+    who_lbl.text = ch().who
+
+
+func _steps() -> Array:
+    return STEPS_4 if ch().hard else STEPS_3
+
+
+func _veh_name() -> String:
+    return "o trailer" if veh == rv else "o sedan"
 
 
 # ---------------------------------------------------------------- UI
@@ -146,9 +227,8 @@ func _build_ui() -> void:
 
     dialog = _rect(ui, Color(0.05, 0.04, 0.03, 0.82))
     _place(dialog, 0.5, 1, 0.5, 1, -460, -280, 460, -120)
-    var who := _label(dialog, 24, Color(1.0, 0.82, 0.2))
-    who.text = "Gerente"
-    _place(who, 0, 0, 1, 0, 24, 14, -24, 46)
+    who_lbl = _label(dialog, 24, Color(1.0, 0.82, 0.2))
+    _place(who_lbl, 0, 0, 1, 0, 24, 14, -24, 46)
     dialog_text = _label(dialog, 22)
     dialog_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
     _place(dialog_text, 0, 0, 1, 1, 24, 50, -24, -36)
@@ -188,6 +268,19 @@ func _build_ui() -> void:
     rhint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     _place(rhint, 0, 1, 1, 1, 0, -44, 0, -14)
 
+    chase_panel = _rect(ui, Color(0.04, 0.04, 0.04, 0.7))
+    _place(chase_panel, 0, 1, 0, 1, 16, -200, 336, -120)
+    var hl := _label(chase_panel, 18)
+    hl.text = "Trailer"
+    _place(hl, 0, 0, 1, 0, 12, 6, -12, 30)
+    var hb := _rect(chase_panel, Color(0.2, 0.2, 0.2))
+    _place(hb, 0, 0, 1, 0, 90, 10, -12, 28)
+    health_fill = _rect(hb, Color(0.3, 0.85, 0.35))
+    _place(health_fill, 0, 0, 1, 1, 0, 0, 0, 0)
+    chase_lbl = _label(chase_panel, 18, Color(1.0, 0.55, 0.45))
+    _place(chase_lbl, 0, 0, 1, 1, 12, 36, -12, -6)
+
+    chase_panel.visible = false
     dialog.visible = false
     cook_panel.visible = false
     result_panel.visible = false
@@ -230,6 +323,37 @@ func _build_marker() -> void:
     marker.add_child(marker_ring)
 
 
+func _build_crates() -> void:
+    var wood := Mats.solid("crate_wood", Color(0.62, 0.45, 0.26), 0.9)
+    var band := Mats.solid("crate_band", Color(0.2, 0.2, 0.2), 0.6, 0.5)
+    for spot in city.pickup_spots:
+        var root := Node3D.new()
+        root.name = "Crates"
+        add_child(root)
+        root.global_position = spot.pos + spot.crate_off
+        for k in 3:
+            var p := Vector3((k % 2) * 0.75 - 0.35, 0.3 + (k / 2) * 0.6, 0.0)
+            var c := MeshInstance3D.new()
+            c.mesh = GeoBuilder.box_mesh(Vector3(0.7, 0.6, 0.7))
+            c.material_override = wood
+            c.position = p
+            c.rotation.y = k * 0.3
+            root.add_child(c)
+            var bd := MeshInstance3D.new()
+            bd.mesh = GeoBuilder.box_mesh(Vector3(0.72, 0.08, 0.72))
+            bd.material_override = band
+            bd.position = p
+            bd.rotation.y = k * 0.3
+            root.add_child(bd)
+        _crates.append(root)
+
+
+func _reset_pickups() -> void:
+    _picked = 0
+    for c in _crates:
+        c.visible = true
+
+
 # ---------------------------------------------------------------- flow
 
 func handle_interact() -> bool:
@@ -240,13 +364,16 @@ func handle_interact() -> bool:
                 return true
         S.TALK:
             _line += 1
-            if _line >= LINES.size():
+            if _line >= lines().size():
                 dialog.visible = false
                 player.frozen = false
-                state = S.GET_RV
-                _show_toast("Missão: Primeira Entrega")
+                state = S.GET_VEH
+                _reset_pickups()
+                health = 100.0
+                quality = 0.0
+                _show_toast("Missão %d: %s" % [chapter + 1, ch().title])
             else:
-                dialog_text.text = LINES[_line]
+                dialog_text.text = lines()[_line]
             return true
         S.COOK:
             return true
@@ -269,7 +396,7 @@ func _can_talk() -> bool:
 func _start_talk() -> void:
     state = S.TALK
     _line = 0
-    dialog_text.text = LINES[0]
+    dialog_text.text = lines()[0]
     dialog.visible = true
     player.frozen = true
     var d := giver.global_position - player.global_position
@@ -278,7 +405,8 @@ func _start_talk() -> void:
 
 func _start_cook() -> void:
     state = S.COOK
-    rv.driving = false
+    _timed = false
+    veh.driving = false
     _scores.clear()
     _setup_step(0)
     cook_panel.visible = true
@@ -286,12 +414,12 @@ func _start_cook() -> void:
 
 func _setup_step(i: int) -> void:
     _step = i
-    var w: float = ZONE_W[i]
+    var w: float = (ZONE_4 if ch().hard else ZONE_3)[i]
     _zone_c = randf_range(w * 0.5 + 0.08, 1.0 - w * 0.5 - 0.08)
     _needle = 0.0
     _needle_dir = 1.0
     _step_pause = 0.0
-    cook_title.text = "LABORATÓRIO - Etapa %d/3: %s" % [i + 1, STEPS[i]]
+    cook_title.text = "LABORATÓRIO - Etapa %d/%d: %s" % [i + 1, _steps().size(), _steps()[i]]
     cook_feedback.text = ""
     var bw := bar.size.x if bar.size.x > 0.0 else 640.0
     zone.position = Vector2((_zone_c - w * 0.5) * bw, 0)
@@ -308,7 +436,7 @@ func _update_needle() -> void:
 func cook_press() -> void:
     if state != S.COOK or _step_pause > 0.0:
         return
-    var half: float = ZONE_W[_step] * 0.5
+    var half: float = (ZONE_4 if ch().hard else ZONE_3)[_step] * 0.5
     var d := absf(_needle - _zone_c)
     var score := 1.0 - 0.3 * (d / half) if d <= half else maxf(0.0, 0.6 - (d - half) * 2.5)
     _scores.append(score)
@@ -329,10 +457,66 @@ func _finish_cook() -> void:
         total += s
     quality = total / _scores.size()
     cook_panel.visible = false
-    rv.driving = true
-    state = S.DELIVER
-    time_left = TIME_LIMIT
-    _show_toast("Qualidade: %d%%. Entregue no Pollos Dorados!" % roundi(quality * 100.0))
+    veh.driving = main.current_vehicle == veh
+    match chapter:
+        0:
+            state = S.DELIVER
+            _timed = true
+            time_left = ch().time
+            _show_toast("Qualidade: %d%%. Entregue no Pollos Dorados!" % roundi(quality * 100.0))
+        1:
+            _finish(true)
+        _:
+            _start_chase()
+
+
+func _start_chase() -> void:
+    state = S.CHASE
+    health = 100.0
+    _escape_time = 0.0
+    _hit_cd = 0.0
+    _rival_wait = RIVAL_DELAY
+    _spawn_rival()
+    _show_toast("Qualidade: %d%%. Um carro preto está vindo! Fuja!" % roundi(quality * 100.0))
+
+
+func _spawn_rival() -> void:
+    _despawn_rival()
+    rival = Vehicle.new()
+    rival.name = "Rival"
+    rival.paint_color = Color(0.06, 0.06, 0.07)
+    rival.setup("sedan")
+    rival.contact_monitor = true
+    rival.max_contacts_reported = 4
+    var p := city.lab_spot + Vector3(-85.0, 0.0, -8.0)
+    p.y = city.height_at(p.x, p.z) + 1.0
+    rival.transform = Transform3D(Basis(Vector3.UP, PI / 2.0), p)
+    add_child(rival)
+    rival.body_entered.connect(_on_rival_hit)
+
+
+func _despawn_rival() -> void:
+    if is_instance_valid(rival):
+        rival.queue_free()
+    rival = null
+
+
+func _on_rival_hit(body: Node) -> void:
+    if body != veh or state != S.CHASE or _hit_cd > 0.0 or _rel_prev < 2.0:
+        return
+    _hit_cd = 0.6
+    health = maxf(0.0, health - clampf(_rel_prev * 2.2, 5.0, 22.0))
+
+
+func _physics_process(delta: float) -> void:
+    _hit_cd -= delta
+    if state != S.CHASE or not is_instance_valid(rival):
+        return
+    _rel_prev = (rival.linear_velocity - veh.linear_velocity).length()
+    if _rival_wait > 0.0:
+        _rival_wait -= delta
+        if _rival_wait <= 0.0:
+            rival.ai_target = veh
 
 
 func _finish(success: bool, reason := "") -> void:
@@ -342,14 +526,20 @@ func _finish(success: bool, reason := "") -> void:
     toast.text = ""
     cook_panel.visible = false
     timer_lbl.visible = false
+    chase_panel.visible = false
+    _timed = false
+    if is_instance_valid(rival):
+        rival.ai_target = null
     result_panel.visible = true
     var hint: Label = result_panel.get_node("Hint")
     if success:
-        var pay := int(roundf((BASE_PAY * (0.5 + quality * 0.5) + time_left * 20.0) / 10.0)) * 10
+        var bonus := time_left * 20.0 if ch().time > 0.0 else health * 40.0
+        var pay := int(roundf((float(ch().pay) * (0.5 + quality * 0.5) + bonus) / 10.0)) * 10
         money += pay
         result_title.text = "MISSÃO CONCLUÍDA"
         result_title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
-        result_body.text = "Tempo: %s\nQualidade: %d%%\nPagamento: %s" % [_fmt_time(TIME_LIMIT - time_left), roundi(quality * 100.0), _fmt_money(pay)]
+        var first := "Tempo: %s" % _fmt_time(ch().time - time_left) if ch().time > 0.0 else "Trailer: %d%% inteiro" % roundi(health)
+        result_body.text = "%s\nQualidade: %d%%\nPagamento: %s" % [first, roundi(quality * 100.0), _fmt_money(pay)]
         hint.text = "E - continuar"
         money_lbl.visible = true
         money_lbl.text = _fmt_money(money)
@@ -362,15 +552,36 @@ func _finish(success: bool, reason := "") -> void:
 
 func _close_result() -> void:
     result_panel.visible = false
-    if _success:
-        state = S.IDLE
-    else:
-        if rv.global_transform.basis.y.y < 0.5:
-            rv.reset_upright()
-        if main.current_vehicle == rv:
-            rv.driving = true
-        state = S.GET_RV
     _flip_time = 0.0
+    if _success:
+        _despawn_rival()
+        _set_chapter(chapter + 1)
+        if state == S.DONE:
+            _show_toast("Todas as missões concluídas!")
+        else:
+            _show_toast("Nova missão: fale com %s" % ch().label)
+        return
+    if veh.global_transform.basis.y.y < 0.5:
+        veh.reset_upright()
+    if chapter == 2 and quality > 0.0:
+        _retry_chase()
+        return
+    if main.current_vehicle == veh:
+        veh.driving = true
+    _reset_pickups()
+    state = S.GET_VEH
+
+
+## Checkpoint for the chase: back at the camp with the cooked batch.
+func _retry_chase() -> void:
+    var p := city.lab_spot + Vector3(6.0, 0.0, -8.0)
+    p.y = city.height_at(p.x, p.z) + 1.0
+    veh.global_transform = Transform3D(Basis(Vector3.UP, PI / 2.0), p)
+    veh.linear_velocity = Vector3.ZERO
+    veh.angular_velocity = Vector3.ZERO
+    veh.reset_physics_interpolation()
+    main.force_enter(veh)
+    _start_chase()
 
 
 func _show_toast(text: String) -> void:
@@ -386,67 +597,106 @@ func _process(delta: float) -> void:
     var obj := ""
     overrides_prompt = false
     prompt_text = ""
-    var in_rv: bool = main.current_vehicle == rv
+    var in_veh: bool = main.current_vehicle == veh
+    var vpos := veh.global_position + Vector3.UP * (4.5 if veh == rv else 3.0)
 
     match state:
         S.IDLE:
             target = giver.global_position + Vector3.UP * 2.5
-            obj = "Fale com o gerente na frente do Pollos Dorados"
+            obj = "Fale com %s %s" % [ch().label, ch().where]
             if _can_talk():
                 overrides_prompt = true
-                prompt_text = "E - falar com o gerente"
+                prompt_text = "E - falar com %s" % ch().label
         S.TALK:
             overrides_prompt = true
-        S.GET_RV:
-            target = rv.global_position + Vector3.UP * 4.5
-            obj = "Pegue o trailer (RV)"
-            if in_rv:
-                state = S.DRIVE_LAB
+        S.GET_VEH:
+            target = vpos
+            obj = "Pegue %s" % _veh_name()
+            if veh == rv:
+                obj = "Pegue o trailer (RV)"
+            if in_veh:
+                if chapter == 1:
+                    state = S.PICKUP
+                    _timed = true
+                    time_left = ch().time
+                else:
+                    state = S.DRIVE_LAB
+        S.PICKUP:
+            if in_veh:
+                var spot: Dictionary = city.pickup_spots[_picked]
+                target = spot.pos
+                ring = PICKUP_RADIUS
+                obj = "Busque a caixa %d/3 no %s" % [_picked + 1, spot.name] if spot.name != "farmácia" else "Busque a caixa 1/3 na farmácia"
+                if _flat_dist(veh.global_position, spot.pos) < PICKUP_RADIUS:
+                    overrides_prompt = true
+                    prompt_text = "Pare o carro para carregar"
+                    if veh.linear_velocity.length() < 1.5:
+                        _crates[_picked].visible = false
+                        _picked += 1
+                        _show_toast("Caixa %d/3 carregada" % _picked)
+                        if _picked >= city.pickup_spots.size():
+                            state = S.DRIVE_LAB
+            else:
+                target = vpos
+                obj = "Volte para o carro!"
         S.DRIVE_LAB:
-            if in_rv:
+            if in_veh:
                 target = city.lab_spot
                 ring = LAB_RADIUS
-                obj = "Leve o trailer até o ponto marcado no deserto"
-                if _flat_dist(rv.global_position, city.lab_spot) < LAB_RADIUS:
+                obj = "Leve %s até o laboratório no deserto" % _veh_name()
+                if _flat_dist(veh.global_position, city.lab_spot) < LAB_RADIUS:
                     overrides_prompt = true
-                    prompt_text = "Pare o trailer para começar"
-                    if rv.linear_velocity.length() < 1.5:
+                    prompt_text = "Pare para começar"
+                    if veh.linear_velocity.length() < 1.5:
                         _start_cook()
             else:
-                target = rv.global_position + Vector3.UP * 4.5
-                obj = "Volte para o trailer"
+                target = vpos
+                obj = "Volte para %s" % _veh_name()
         S.COOK:
             overrides_prompt = true
             _process_cook(delta)
+        S.CHASE:
+            _process_chase(delta)
+            if state == S.CHASE:
+                target = city.delivery_spot
+                obj = "Despiste o carro preto! Abra %d m de distância" % roundi(ESCAPE_DIST) if in_veh else "Volte para o trailer!"
+                if not in_veh:
+                    target = vpos
         S.DELIVER:
-            time_left -= delta
-            if time_left <= 0.0:
-                time_left = 0.0
-                _finish(false, "O tempo acabou.")
-            elif in_rv:
+            if in_veh:
                 target = city.delivery_spot
                 ring = DELIVERY_RADIUS
                 obj = "Entregue no estacionamento do Pollos Dorados"
-                if _flat_dist(rv.global_position, city.delivery_spot) < DELIVERY_RADIUS:
+                if _flat_dist(veh.global_position, city.delivery_spot) < DELIVERY_RADIUS:
                     overrides_prompt = true
                     prompt_text = "Pare o trailer para entregar"
-                    if rv.linear_velocity.length() < 2.0:
+                    if veh.linear_velocity.length() < 2.0:
                         _finish(true)
             else:
-                target = rv.global_position + Vector3.UP * 4.5
+                target = vpos
                 obj = "Volte para o trailer!"
         S.RESULT:
             overrides_prompt = true
+        S.DONE:
+            _done_time -= delta
+            if _done_time > 0.0:
+                obj = "Todas as missões concluídas! Obrigado por jogar."
 
-    if state in [S.DRIVE_LAB, S.DELIVER]:
-        if rv.global_transform.basis.y.y < 0.3:
+    if _timed and state in [S.PICKUP, S.DRIVE_LAB, S.DELIVER]:
+        time_left -= delta
+        if time_left <= 0.0:
+            time_left = 0.0
+            _finish(false, "O tempo acabou.")
+
+    if state in [S.PICKUP, S.DRIVE_LAB, S.CHASE, S.DELIVER]:
+        if veh.global_transform.basis.y.y < 0.3:
             _flip_time += delta
             if _flip_time > 1.5:
-                _finish(false, "O trailer capotou.")
+                _finish(false, "%s capotou." % _veh_name().capitalize())
         else:
             _flip_time = 0.0
 
-    timer_lbl.visible = state == S.DELIVER
+    timer_lbl.visible = _timed and state in [S.PICKUP, S.DRIVE_LAB, S.DELIVER]
     if timer_lbl.visible:
         timer_lbl.text = _fmt_time(time_left)
         timer_lbl.add_theme_color_override("font_color", Color(1.0, 0.35, 0.25) if time_left < 20.0 else Color(1, 0.97, 0.9))
@@ -458,16 +708,39 @@ func _process(delta: float) -> void:
         main.hud.set_prompt(prompt_text)
 
 
+func _process_chase(delta: float) -> void:
+    chase_panel.visible = true
+    health_fill.anchor_right = health / 100.0
+    health_fill.color = Color(0.3, 0.85, 0.35) if health > 50.0 else (Color(0.95, 0.75, 0.2) if health > 25.0 else Color(0.95, 0.25, 0.2))
+    if health <= 0.0:
+        _finish(false, "O trailer foi destruído.")
+        return
+    if not is_instance_valid(rival):
+        return
+    var d := _flat_dist(veh.global_position, rival.global_position)
+    if d > ESCAPE_DIST:
+        _escape_time += delta
+        chase_lbl.text = "Perseguidor a %d m - despistando..." % roundi(d)
+    else:
+        _escape_time = 0.0
+        chase_lbl.text = "Perseguidor a %d m" % roundi(d)
+    if _escape_time > ESCAPE_HOLD:
+        _despawn_rival()
+        chase_panel.visible = false
+        state = S.DELIVER
+        _show_toast("Você despistou! Entregue no Pollos Dorados")
+
+
 func _process_cook(delta: float) -> void:
     if _step_pause > 0.0:
         _step_pause -= delta
         if _step_pause <= 0.0:
-            if _step + 1 < STEPS.size():
+            if _step + 1 < _steps().size():
                 _setup_step(_step + 1)
             else:
                 _finish_cook()
         return
-    _needle += _needle_dir * NEEDLE_SPEED[_step] * delta
+    _needle += _needle_dir * (SPEED_4 if ch().hard else SPEED_3)[_step] * delta
     if _needle > 1.0:
         _needle = 2.0 - _needle
         _needle_dir = -1.0

@@ -172,10 +172,10 @@ func _mission_test(city: City, rv: Vehicle) -> void:
     await _wait(1.0)
     print("[autotest] mission state after talk=", m.state, " frozen=", player.frozen)
     await _shot("19_missao_dialogo")
-    for i in Mission.LINES.size():
+    for i in m.lines().size():
         main.on_interact()
         await _wait(0.2)
-    print("[autotest] mission state get_rv=", m.state == Mission.S.GET_RV)
+    print("[autotest] mission state get_rv=", m.state == Mission.S.GET_VEH)
     await _wait(1.0)
     await _shot("20_missao_pegar_rv")
     player.teleport(rv.global_transform * Vector3(2.5, 0.3, 0))
@@ -220,24 +220,153 @@ func _mission_test(city: City, rv: Vehicle) -> void:
     main.on_interact()
     await _wait(0.3)
     print("[autotest] mission back to idle=", m.state == Mission.S.IDLE)
-    # failure path: timeout
-    _place_vehicle(rv, city.lab_spot + Vector3(40.0, 0.0, -8.0), -PI / 2.0)
-    await _wait(0.5)
-    m.state = Mission.S.DELIVER
-    m.time_left = 0.05
-    await _wait(0.5)
-    print("[autotest] mission timeout fail=", m.state == Mission.S.RESULT and not m._success, " body=", m.result_body.text)
-    main.on_interact()
-    await _wait(0.3)
-    print("[autotest] mission retry state get_rv/drive_lab=", m.state)
-    await _wait(0.5)
-    await _shot("26_missao_retry")
+    print("[autotest] mission chapter now=", m.chapter, " giver=", m.giver.kind, " state idle=", m.state == Mission.S.IDLE)
+    await _chapter2(city, m)
+    await _chapter3(city, m, rv)
     m.state = Mission.S.IDLE
     var ex: Vector3 = rv.global_position
     while main.current_vehicle != null:
         main.toggle_vehicle()
         await _wait(0.3)
     player.teleport(ex + Vector3(0, 0, 6))
+
+
+func _talk_through(m: Mission) -> void:
+    var player: Player = main.player
+    while main.current_vehicle != null:
+        main.current_vehicle.linear_velocity = Vector3.ZERO
+        main.toggle_vehicle()
+        await _wait(0.3)
+    player.teleport(m.giver.global_transform * Vector3(0.6, 0.2, 2.0))
+    main.rig.yaw = city_yaw_toward(player.global_position, m.giver.global_position)
+    await _wait(1.0)
+    print("[autotest] ch", m.chapter + 1, " prompt=", main.hud.prompt.text)
+    main.on_interact()
+    await _wait(0.3)
+    for i in m.lines().size():
+        main.on_interact()
+        await _wait(0.2)
+
+
+func _cook_all(m: Mission) -> void:
+    for i in 30:
+        if m.state == Mission.S.COOK:
+            break
+        await _wait(0.2)
+    var cooking := m.state == Mission.S.COOK
+    var n := 0
+    while m.state == Mission.S.COOK and n < 8:
+        m._needle = m._zone_c
+        m.cook_press()
+        n += 1
+        await _wait(0.3)
+        for j in 20:
+            if m._step_pause <= 0.0:
+                break
+            await _wait(0.2)
+    print("[autotest] cook ok=", cooking, " presses=", n, " quality=", m.quality)
+
+
+func _wait_state(m: Mission, st: int, tries := 30) -> bool:
+    for i in tries:
+        if m.state == st:
+            return true
+        await _wait(0.2)
+    return m.state == st
+
+
+func _chapter2(city: City, m: Mission) -> void:
+    var sedan: Vehicle = main.vehicles[0]
+    await _talk_through(m)
+    print("[autotest] ch2 get_veh=", m.state == Mission.S.GET_VEH, " veh=", m.veh.kind, " who=", m.who_lbl.text)
+    main.player.teleport(sedan.global_transform * Vector3(2.2, 0.3, 0))
+    await _wait(0.5)
+    main.on_interact()
+    await _wait(0.5)
+    print("[autotest] ch2 pickup=", m.state == Mission.S.PICKUP, " timer=", m.time_left)
+    var shots := ["29_farmacia", "30_ferro_velho", "31_deposito"]
+    for i in city.pickup_spots.size():
+        var spot: Dictionary = city.pickup_spots[i]
+        var to: Vector3 = spot.pos + spot.crate_off
+        _place_vehicle(sedan, spot.pos, atan2(to.x - spot.pos.x, to.z - spot.pos.z) + PI * 0.5)
+        main.rig.yaw = city_yaw_toward(sedan.global_position, to) + 0.5
+        for k in 20:
+            if m._picked > i:
+                break
+            await _wait(0.2)
+        print("[autotest] ch2 picked=", m._picked, " at ", spot.name)
+        await _wait(0.6)
+        await _shot(shots[i])
+        if i == 0:
+            m.time_left = 0.05
+            await _wait(0.5)
+            print("[autotest] ch2 timeout fail=", m.state == Mission.S.RESULT and not m._success)
+            main.on_interact()
+            await _wait(0.5)
+            print("[autotest] ch2 retry picked=", m._picked, " state pickup=", m.state == Mission.S.PICKUP)
+            _place_vehicle(sedan, spot.pos + Vector3(0, 0, -1), 0.0)
+            for k in 20:
+                if m._picked > 0:
+                    break
+                await _wait(0.2)
+    print("[autotest] ch2 drive_lab=", m.state == Mission.S.DRIVE_LAB)
+    _place_vehicle(sedan, city.lab_spot, -PI / 2.0)
+    await _cook_all(m)
+    print("[autotest] ch2 result success=", m.state == Mission.S.RESULT and m._success, " money=", m.money, " body=", m.result_body.text.replace("\n", " | "))
+    await _shot("32_ingredientes_fim")
+    main.on_interact()
+    await _wait(0.3)
+    print("[autotest] ch3 ready chapter=", m.chapter, " giver=", m.giver.kind)
+
+
+func _chapter3(city: City, m: Mission, rv: Vehicle) -> void:
+    await _talk_through(m)
+    main.player.teleport(rv.global_transform * Vector3(2.5, 0.3, 0))
+    await _wait(0.5)
+    main.on_interact()
+    await _wait(0.5)
+    print("[autotest] ch3 drive_lab=", m.state == Mission.S.DRIVE_LAB)
+    _place_vehicle(rv, city.lab_spot, PI / 2.0)
+    await _cook_all(m)
+    print("[autotest] ch3 chase=", m.state == Mission.S.CHASE, " rival=", is_instance_valid(m.rival))
+    var d0 := rv.global_position.distance_to(m.rival.global_position)
+    for i in 360:
+        await get_tree().physics_frame
+    var d1 := rv.global_position.distance_to(m.rival.global_position)
+    print("[autotest] ch3 rival closing d0=", d0, " d1=", d1, " rival speed=", m.rival.linear_velocity.length(), " health=", m.health)
+    main.rig.yaw = city_yaw_toward(rv.global_position, m.rival.global_position) + PI
+    await _shot("33_perseguicao")
+    var h0 := m.health
+    var back := rv.global_transform.basis.z
+    m._hit_cd = 0.0
+    m.rival.global_transform = Transform3D(Basis(Vector3.UP, atan2(back.x, back.z)), rv.global_position - back * 9.0 + Vector3.UP * 0.6)
+    m.rival.reset_physics_interpolation()
+    m.rival.linear_velocity = back * 14.0
+    for i in 90:
+        await get_tree().physics_frame
+        if m.health < h0:
+            break
+    print("[autotest] ch3 ram health ", h0, " -> ", m.health)
+    await _shot("34_batida")
+    m.health = 0.0
+    await _wait(0.5)
+    print("[autotest] ch3 destroyed fail=", m.state == Mission.S.RESULT and not m._success, " body=", m.result_body.text)
+    main.on_interact()
+    await _wait(0.5)
+    print("[autotest] ch3 retry chase=", m.state == Mission.S.CHASE, " health=", m.health, " in_rv=", main.current_vehicle == rv)
+    _place_vehicle(rv, city.lab_spot + Vector3(260.0, 0.0, -8.0), PI / 2.0)
+    rv.global_position.y = city.height_at(rv.global_position.x, rv.global_position.z) + 1.0
+    if await _wait_state(m, Mission.S.DELIVER, 40):
+        print("[autotest] ch3 escaped=true rival_gone=", not is_instance_valid(m.rival))
+    else:
+        print("[autotest] ch3 escaped=false dist=", m.chase_lbl.text)
+    _place_vehicle(rv, city.delivery_spot, PI)
+    await _wait_state(m, Mission.S.RESULT)
+    print("[autotest] ch3 result success=", m._success, " money=", m.money, " body=", m.result_body.text.replace("\n", " | "))
+    await _shot("35_fuga_fim")
+    main.on_interact()
+    await _wait(0.5)
+    print("[autotest] all done state=", m.state == Mission.S.DONE, " objective=", m.objective.text)
 
 
 func _traffic_test(city: City) -> void:

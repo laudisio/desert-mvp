@@ -60,9 +60,7 @@ func _ready() -> void:
     mission = Mission.new()
     mission.name = "Mission"
     add_child(mission)
-    for n in npcs:
-        if n.kind == "gerente":
-            mission.setup(self, n)
+    mission.setup(self)
     Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
     if "--autotest" in OS.get_cmdline_user_args():
@@ -148,6 +146,17 @@ func toggle_vehicle() -> void:
             near.driving = true
             player.enter_vehicle()
             rig.set_target(near, near.cam_height, near.cam_distance, true)
+
+
+func force_enter(v: Vehicle) -> void:
+    if current_vehicle == v:
+        return
+    if current_vehicle:
+        current_vehicle.driving = false
+    current_vehicle = v
+    v.driving = true
+    player.enter_vehicle()
+    rig.set_target(v, v.cam_height, v.cam_distance, true)
 
 
 func on_interact() -> void:

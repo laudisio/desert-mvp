@@ -24,6 +24,11 @@ var _playback: AudioStreamGeneratorPlayback
 var _audio_phase := 0.0
 var _mix_rate := 22050.0
 var _flipped_time := 0.0
+var paint_color := Color(0.38, 0.52, 0.44)
+var ai_target: Node3D = null
+var ai_max_speed := 25.0
+var _ai_stuck := 0.0
+var _ai_reverse := 0.0
 
 
 func setup(kind_name: String) -> void:
@@ -95,7 +100,7 @@ func _build_sedan() -> void:
     brake_force = 30.0
     max_speed = 42.0
     center_of_mass = Vector3(0, 0.15, 0)
-    var paint := Mats.solid("sedan_paint", Color(0.38, 0.52, 0.44), 0.3, 0.6)
+    var paint := Mats.solid("sedan_paint_" + paint_color.to_html(), paint_color, 0.3, 0.6)
     var car := CarMesh.get_car("sedan")
     var body := _mesh(car.mesh, null, Vector3.ZERO)
     CarMesh.apply(body, CarMesh.role_materials(paint, _tail_mat))
@@ -175,6 +180,10 @@ func _physics_process(delta: float) -> void:
         throttle = Input.get_axis("move_back", "move_forward")
         steer_in = Input.get_axis("move_right", "move_left")
         handbrake = Input.is_action_pressed("jump")
+    elif ai_target:
+        var ai := _ai_inputs(delta, fwd_speed)
+        throttle = ai.x
+        steer_in = ai.y
 
     var max_steer := lerpf(steer_low, steer_high, clampf(absf(fwd_speed) / 30.0, 0.0, 1.0))
     steering = move_toward(steering, steer_in * max_steer, 2.5 * delta)
@@ -196,9 +205,10 @@ func _physics_process(delta: float) -> void:
         else:
             ef = engine_power * reverse_ratio * throttle
             br = 0.0
-    if not driving:
+    if not driving and ai_target == null:
         br = brake_force * 0.5
-    if (ef > 0.0 and fwd_speed > max_speed) or (ef < 0.0 and fwd_speed < -max_speed * 0.3):
+    var top := ai_max_speed if ai_target else max_speed
+    if (ef > 0.0 and fwd_speed > top) or (ef < 0.0 and fwd_speed < -max_speed * 0.3):
         ef = 0.0
     engine_force = ef
     brake = br
@@ -212,6 +222,27 @@ func _physics_process(delta: float) -> void:
     apply_central_force(-v * v.length() * 0.45)
     apply_central_force(-global_transform.basis.y * v.length_squared() * 0.8)
     _stabilize(delta)
+
+
+## Simple pursuit: aim at where the target will be, back up and re-aim when stuck.
+func _ai_inputs(delta: float, fwd_speed: float) -> Vector2:
+    var tgt := ai_target.global_position
+    var dist := global_position.distance_to(tgt)
+    if ai_target is RigidBody3D and dist > 12.0:
+        tgt += (ai_target as RigidBody3D).linear_velocity * clampf(dist / 30.0, 0.0, 1.2)
+    var l := global_transform.affine_inverse() * tgt
+    var ang := atan2(l.x, l.z)
+    if _ai_reverse > 0.0:
+        _ai_reverse -= delta
+        return Vector2(-1.0, -signf(ang))
+    if absf(fwd_speed) < 1.0:
+        _ai_stuck += delta
+        if _ai_stuck > 1.5:
+            _ai_stuck = 0.0
+            _ai_reverse = 1.3
+    else:
+        _ai_stuck = 0.0
+    return Vector2(1.0 if absf(ang) < 1.4 else 0.7, clampf(ang * 1.8, -1.0, 1.0))
 
 
 func _stabilize(delta: float) -> void:
@@ -233,10 +264,11 @@ func _stabilize(delta: float) -> void:
 
 
 func _process(_delta: float) -> void:
-    if driving and not _audio.playing:
+    var active := driving or ai_target != null
+    if active and not _audio.playing:
         _audio.play()
         _playback = _audio.get_stream_playback()
-    elif not driving and _audio.playing:
+    elif not active and _audio.playing:
         _audio.stop()
         _playback = null
     if _playback == null:

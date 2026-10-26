@@ -17,6 +17,8 @@ const WEST_IDX := 3
 const HWY_END := 940.0
 const RESTAURANT_NAME := "POLLOS DORADOS"
 const RESTAURANT_TAGLINE := "FRIED CHICKEN"
+const JUNK_C := Vector2(195.0, -60.0)
+const STORE_C := Vector2(-192.0, 8.0)
 
 const STUCCO := [
     Color(0.86, 0.74, 0.58), Color(0.80, 0.62, 0.45), Color(0.90, 0.84, 0.72),
@@ -46,6 +48,7 @@ var family_house_xf := Transform3D()
 var npc_spots: Array = []
 var lab_spot := Vector3.ZERO
 var delivery_spot := Vector3.ZERO
+var pickup_spots: Array = []
 
 
 static func line(i: int) -> float:
@@ -74,6 +77,7 @@ func build() -> void:
             _build_block(bx, bz)
     _build_highway_props()
     _build_lab_spot()
+    _build_pickup_sites()
     _build_bounds()
 
     var hz := line(HWY_IDX)
@@ -710,6 +714,8 @@ func _build_highway_props() -> void:
             continue
         if absf(p.z - line(WEST_IDX)) < 9.0 and p.x < 0.0:
             continue
+        if Vector2(p.x, p.z).distance_to(JUNK_C) < 40.0 or Vector2(p.x, p.z).distance_to(STORE_C) < 30.0:
+            continue
         p.y = height_at(p.x, p.z)
         var r := rng.randf()
         if r < 0.45:
@@ -745,6 +751,109 @@ func _build_lab_spot() -> void:
         b.shape_box(T(barrel + Vector3(0, 0.5, 0)), Vector3(0.7, 1.0, 0.7))
     b.mesh(GeoBuilder.cyl_mesh(0.6, 0.7, 0.25, 10), T(g.call(1.0, 9.5) + Vector3(0, 0.12, 0)), M.dark_metal)
     b.build(self, "LabSpot")
+
+
+func _ground(x: float, z: float, y_off := 0.0) -> Vector3:
+    return Vector3(x, height_at(x, z) + y_off, z)
+
+
+func _sign(text: String, pos: Vector3, yaw: float, color: Color) -> void:
+    var b := GeoBuilder.new()
+    for off in [-2.2, 2.2]:
+        b.box(T(pos + Basis(Vector3.UP, yaw) * Vector3(off, 1.6, 0)), Vector3(0.18, 3.2, 0.18), M.pole_wood)
+    b.box(T(pos + Vector3(0, 3.6, 0), yaw), Vector3(5.6, 1.3, 0.12), M.white, false)
+    b.build(self, "Sign_" + text)
+    for side in [0.0, PI]:
+        var lbl := Label3D.new()
+        lbl.text = text
+        lbl.font_size = 120
+        lbl.pixel_size = 0.009
+        lbl.outline_size = 0
+        lbl.modulate = color
+        lbl.shaded = true
+        lbl.position = pos + Vector3(0, 3.6, 0) + Basis(Vector3.UP, yaw + side) * Vector3(0, 0, -0.08)
+        lbl.rotation.y = yaw + side + PI
+        add_child(lbl)
+
+
+func _build_pickup_sites() -> void:
+    var cz := PITCH * 0.5 + line(2)
+    pickup_spots.append({"name": "farmácia", "pos": Vector3(0.0, CURB, cz - 2.5), "crate_off": Vector3(3.6, 0, 0.6)})
+
+    # junkyard by the highway, east of town
+    var b := GeoBuilder.new()
+    var jx := JUNK_C.x
+    var jz := JUNK_C.y
+    var hw := 22.0
+    var hd := 14.0
+    var fence := Mats.solid("fence", Color(0.55, 0.52, 0.48), 0.6, 0.6)
+    var rust: Array = [
+        Mats.solid("rust_0", Color(0.45, 0.24, 0.14), 0.95, 0.2),
+        Mats.solid("rust_1", Color(0.35, 0.3, 0.26), 0.95, 0.2),
+        Mats.solid("rust_2", Color(0.52, 0.36, 0.22), 0.95, 0.2),
+    ]
+    var x := -hw
+    while x <= hw + 0.01:
+        for zz in [-hd, hd]:
+            if zz > 0.0 and absf(x) < 6.0:
+                continue
+            var p := _ground(jx + x, jz + zz)
+            b.box(T(p + Vector3(0, 1.3, 0)), Vector3(0.12, 2.6, 0.12), M.metal)
+        x += 4.0
+    var z := -hd
+    while z <= hd + 0.01:
+        for xx in [-hw, hw]:
+            var p := _ground(jx + xx, jz + z)
+            b.box(T(p + Vector3(0, 1.3, 0)), Vector3(0.12, 2.6, 0.12), M.metal)
+        z += 4.0
+    for seg in [[-hw, -6.0, hd], [6.0, hw, hd], [-hw, hw, -hd]]:
+        var a: float = seg[0]
+        var c: float = seg[1]
+        var p := _ground(jx + (a + c) * 0.5, jz + seg[2])
+        b.box(T(p + Vector3(0, 1.25, 0)), Vector3(c - a, 2.3, 0.05), fence)
+    for xx in [-hw, hw]:
+        var p := _ground(jx + xx, jz)
+        b.box(T(p + Vector3(0, 1.25, 0)), Vector3(0.05, 2.3, hd * 2.0), fence)
+    var kinds := CarMesh.KINDS
+    for k in 9:
+        var cx := jx - 17.0 + (k % 5) * 8.5
+        var czz := jz - 8.0 + (k / 5) * 7.0
+        var yaw := rng.randf_range(-0.5, 0.5) + (PI / 2.0 if k % 2 == 0 else 0.0)
+        var p := _ground(cx, czz, -0.12)
+        _car_prop(b, T(p, yaw), rust[k % rust.size()], kinds[k % kinds.size()])
+        if k % 3 == 0:
+            var tilt := Transform3D(Basis(Vector3.UP, yaw + 0.4) * Basis(Vector3.FORWARD, 0.06), p + Vector3(0, 1.45, 0))
+            _car_prop(b, tilt, rust[(k + 1) % rust.size()], kinds[(k + 1) % kinds.size()])
+    for k in 6:
+        var tp := _ground(jx + 14.0 + (k % 2) * 1.4, jz + 4.0 + (k / 2) * 1.4)
+        for h in 3:
+            b.mesh(GeoBuilder.cyl_mesh(0.45, 0.45, 0.28, 12), T(tp + Vector3(0, 0.14 + h * 0.29, 0)), M.tire)
+        b.shape_box(T(tp + Vector3(0, 0.45, 0)), Vector3(0.9, 0.9, 0.9))
+    var shack := _ground(jx - 15.0, jz + 8.5)
+    b.box(T(shack + Vector3(0, 1.4, 0)), Vector3(5.0, 2.8, 3.4), Mats.solid("shack", Color(0.6, 0.55, 0.45), 0.9))
+    b.box(T(shack + Vector3(0, 2.9, 0)), Vector3(5.6, 0.15, 4.0), M.dark_metal, false)
+    b.build(self, "Junkyard")
+    _sign("JUNKYARD", _ground(jx + 9.0, jz + hd + 1.5), 0.0, Color(0.7, 0.15, 0.1))
+    pickup_spots.append({"name": "ferro-velho", "pos": _ground(jx, jz + hd - 4.0), "crate_off": Vector3(-4.0, 0, 1.0)})
+
+    # self-storage on the west dirt road
+    b = GeoBuilder.new()
+    var sx := STORE_C.x
+    var sz := STORE_C.y
+    var shed := Mats.solid("storage_wall", Color(0.78, 0.76, 0.7), 0.7, 0.3)
+    var roll: Array = [Mats.solid("roll_orange", Color(0.85, 0.42, 0.12), 0.6, 0.4), Mats.solid("roll_blue", Color(0.2, 0.36, 0.6), 0.6, 0.4)]
+    var base := _ground(sx, sz)
+    b.box(T(base + Vector3(0, -0.2, 6.0)), Vector3(30.0, 0.5, 26.0), M.concrete)
+    b.box(T(base + Vector3(0, 1.8, 0)), Vector3(26.0, 3.6, 9.0), shed)
+    b.box(T(base + Vector3(0, 3.7, 0.4)), Vector3(26.6, 0.2, 10.0), M.dark_metal, false)
+    for k in 6:
+        var dx := -10.5 + k * 4.2
+        b.box(T(base + Vector3(dx, 1.3, 4.53)), Vector3(3.0, 2.6, 0.06), roll[k % 2], false)
+        b.box(T(base + Vector3(dx, 2.68, 4.55)), Vector3(3.2, 0.14, 0.08), M.trim, false)
+    b.box(T(base + Vector3(13.6, 0.55, 8.0)), Vector3(0.5, 1.1, 0.5), M.orange)
+    b.build(self, "Storage")
+    _sign("U-STORE", _ground(sx + 12.0, line(WEST_IDX) - 5.5), PI, Color(0.15, 0.3, 0.6))
+    pickup_spots.append({"name": "depósito", "pos": _ground(sx - 2.0, sz + 10.5), "crate_off": Vector3(0.0, 0, -4.0)})
 
 
 func _build_bounds() -> void:
