@@ -29,6 +29,17 @@ var ai_target: Node3D = null
 var ai_max_speed := 25.0
 var _ai_stuck := 0.0
 var _ai_reverse := 0.0
+var nitro_cap := 0.0
+var nitro := 0.0
+var boosting := false
+var _base_power := 0.0
+var _base_speed := 0.0
+var _flame: MeshInstance3D
+var _rear_z := -2.35
+
+const NITRO_FORCE := 2.2
+const NITRO_SPEED := 11.0
+const NITRO_RECHARGE := 0.2
 
 
 func setup(kind_name: String) -> void:
@@ -47,7 +58,29 @@ func setup(kind_name: String) -> void:
         _build_rv()
     else:
         _build_sedan()
+    _rear_z = -3.95 if kind == "rv" else -2.35
+    _flame = MeshInstance3D.new()
+    var cone := CylinderMesh.new()
+    cone.top_radius = 0.0
+    cone.bottom_radius = 0.22
+    cone.height = 1.1
+    _flame.mesh = cone
+    _flame.material_override = Mats.emissive("nitro_flame", Color(0.35, 0.65, 1.0), 4.0)
+    _flame.rotation.x = -PI * 0.5
+    _flame.position = Vector3(0.45 if kind == "rv" else -0.5, 0.55 if kind == "rv" else 0.4, _rear_z - 0.5)
+    _flame.visible = false
+    add_child(_flame)
     _setup_audio()
+
+
+func apply_upgrades(engine_lv: int, nitro_lv: int) -> void:
+    if _base_power == 0.0:
+        _base_power = engine_power
+        _base_speed = max_speed
+    engine_power = _base_power * Progress.ENGINE_POWER[engine_lv]
+    max_speed = _base_speed + Progress.ENGINE_SPEED[engine_lv]
+    nitro_cap = Progress.NITRO_CAP[nitro_lv]
+    nitro = nitro_cap
 
 
 func _mesh(mesh: Mesh, mat: Material, pos: Vector3) -> MeshInstance3D:
@@ -208,6 +241,16 @@ func _physics_process(delta: float) -> void:
     if not driving and ai_target == null:
         br = brake_force * 0.5
     var top := ai_max_speed if ai_target else max_speed
+    boosting = driving and nitro > 0.0 and throttle > 0.0 and fwd_speed > -1.0 and Input.is_action_pressed("sprint")
+    if boosting:
+        nitro = maxf(0.0, nitro - delta)
+        ef *= NITRO_FORCE
+        top += NITRO_SPEED
+    else:
+        nitro = minf(nitro_cap, nitro + delta * NITRO_RECHARGE)
+    _flame.visible = boosting
+    if boosting:
+        _flame.scale = Vector3.ONE * randf_range(0.8, 1.15)
     if (ef > 0.0 and fwd_speed > top) or (ef < 0.0 and fwd_speed < -max_speed * 0.3):
         ef = 0.0
     engine_force = ef

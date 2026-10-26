@@ -49,6 +49,9 @@ var npc_spots: Array = []
 var lab_spot := Vector3.ZERO
 var delivery_spot := Vector3.ZERO
 var pickup_spots: Array = []
+var garage_spot := Vector3.ZERO
+var wash_sign: Label3D
+var wash_info: Label3D
 
 
 static func line(i: int) -> float:
@@ -303,6 +306,8 @@ func _build_block(bx: int, bz: int) -> void:
         _park_block(b, cx, cz)
     elif bx == 3 and bz == 2:
         _restaurant_block(b, cx, cz)
+    elif bx == 3 and bz == 1:
+        _garage_block(b, cx, cz)
     else:
         for row in 2:
             for k in 3:
@@ -520,6 +525,97 @@ func _commercial_block(b: GeoBuilder, cx: float, cz: float) -> void:
     for lx in [cx - 12.0, cx + 12.0]:
         _street_light(b, T(Vector3(lx, y0, cz - 10.5)))
     b.box(T(Vector3(cx + 20.0, y0 + 0.75, front + 17.0)), Vector3(2.0, 1.5, 1.4), M.cars[1])
+
+
+## Oficina (upgrade shop, west half) and the lava-rápido for sale (east half), facing the highway.
+func _garage_block(b: GeoBuilder, cx: float, cz: float) -> void:
+    var y0 := CURB
+    var front := cz + BLOCK * 0.5
+    b.box(T(Vector3(cx, y0 + 0.01, cz + 4.0)), Vector3(BLOCK, 0.02, BLOCK - 8.0), M.asphalt, false)
+    var shop: Material = M.stucco[5]
+    var gx := cx - 11.0
+    var gz := cz - 4.0
+    var w := 20.0
+    var d := 14.0
+    var h := 6.0
+    b.box(T(Vector3(gx, y0 + h * 0.5, gz - d * 0.5)), Vector3(w, h, 0.4), shop)
+    for sx in [-1.0, 1.0]:
+        b.box(T(Vector3(gx + sx * w * 0.5, y0 + h * 0.5, gz)), Vector3(0.4, h, d), shop)
+    b.box(T(Vector3(gx, y0 + h + 0.15, gz)), Vector3(w + 0.6, 0.3, d + 0.6), M.roof_flat)
+    for k in [-1.0, 0.0, 1.0]:
+        b.box(T(Vector3(gx + k * 6.6, y0 + h * 0.5, gz + d * 0.5)), Vector3(0.7, h, 0.5), shop)
+    b.box(T(Vector3(gx, y0 + h - 0.6, gz + d * 0.5)), Vector3(w, 1.2, 0.5), shop)
+    b.box(T(Vector3(gx, y0 + h - 0.6, gz + d * 0.5 + 0.27)), Vector3(w, 0.25, 0.05), M.pollo_red, false)
+    b.box(T(Vector3(gx, y0 + 0.02, gz)), Vector3(w - 0.8, 0.02, d - 0.8), M.concrete, false)
+    var lift := Mats.solid("lift_blue", Color(0.15, 0.3, 0.6), 0.5, 0.4)
+    for sx in [-1.6, 1.6]:
+        b.box(T(Vector3(gx - 3.3 + sx, y0 + 1.1, gz - 1.0)), Vector3(0.3, 2.2, 0.3), lift)
+    _car_prop(b, T(Vector3(gx - 3.3, y0 + 1.6, gz - 1.0)), M.cars[0], "sedan")
+    b.box(T(Vector3(gx + 6.5, y0 + 0.6, gz - d * 0.5 + 0.8)), Vector3(3.2, 1.2, 0.9), M.pollo_red)
+    b.box(T(Vector3(gx + 6.5, y0 + 1.25, gz - d * 0.5 + 0.8)), Vector3(3.2, 0.1, 0.9), M.dark_metal, false)
+    for k in 5:
+        var tp := Vector3(gx + w * 0.5 + 1.2, y0 + 0.15 + k * 0.28, gz + d * 0.5 - 1.2)
+        b.mesh(GeoBuilder.cyl_mesh(0.38, 0.38, 0.26, 12), T(tp), M.tire)
+    b.shape_box(T(Vector3(gx + w * 0.5 + 1.2, y0 + 0.75, gz + d * 0.5 - 1.2)), Vector3(0.8, 1.5, 0.8))
+    for k in 3:
+        var dp := Vector3(gx - w * 0.5 - 1.2, y0 + 0.5, gz + d * 0.5 - 1.0 - k * 1.0)
+        b.mesh(GeoBuilder.cyl_mesh(0.32, 0.32, 1.0, 10), T(dp), M.doors[1] if k != 1 else M.orange)
+    b.shape_box(T(Vector3(gx - w * 0.5 - 1.2, y0 + 0.5, gz + d * 0.5 - 2.0)), Vector3(0.7, 1.0, 3.0))
+    var lbl := _label("OFICINA", Vector3(gx, y0 + h - 0.6, gz + d * 0.5 + 0.3), 0.0, 150, Color(1.0, 0.85, 0.25))
+    lbl.outline_size = 20
+    garage_spot = Vector3(gx, y0, gz + d * 0.5 + 6.5)
+    var ring := MeshInstance3D.new()
+    ring.mesh = GeoBuilder.cyl_mesh(3.2, 3.2, 0.03, 32)
+    var ring_mat := StandardMaterial3D.new()
+    ring_mat.albedo_color = Color(0.3, 0.75, 1.0, 0.35)
+    ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+    ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+    ring.material_override = ring_mat
+    ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+    ring.position = garage_spot + Vector3(0, 0.03, 0)
+    add_child(ring)
+    var icon := _label("OFICINA", garage_spot + Vector3(0, 9.5, -6.0), 0.0, 90, Color(0.45, 0.85, 1.0), true)
+    icon.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+    icon.no_depth_test = false
+
+    # lava-rápido: open wash bay with canopy, kiosk and a pole sign
+    var wx := cx + 12.0
+    var wz := cz - 2.0
+    var canopy := Mats.solid("wash_canopy", Color(0.2, 0.55, 0.8), 0.5, 0.3)
+    for sx in [-1.0, 1.0]:
+        for sz in [-1.0, 1.0]:
+            b.box(T(Vector3(wx + sx * 5.0, y0 + 2.4, wz + sz * 6.0)), Vector3(0.35, 4.8, 0.35), M.metal)
+        b.box(T(Vector3(wx + sx * 5.0, y0 + 1.2, wz)), Vector3(0.12, 2.4, 10.0), M.glass, false)
+    b.box(T(Vector3(wx, y0 + 5.0, wz)), Vector3(11.4, 0.4, 13.2), canopy)
+    b.box(T(Vector3(wx, y0 + 5.0, wz + 6.65)), Vector3(11.4, 0.7, 0.1), M.white, false)
+    for k in 3:
+        var brush_col: Color = [Color(0.9, 0.2, 0.2), Color(0.2, 0.7, 0.3), Color(0.95, 0.8, 0.2)][k]
+        var bxf := Transform3D(Basis(Vector3.FORWARD, PI * 0.5), Vector3(wx + (k - 1) * 3.0, y0 + 3.6, wz - 2.0))
+        b.mesh(GeoBuilder.cyl_mesh(0.45, 0.45, 2.4, 10), bxf, Mats.solid("brush_%d" % k, brush_col, 0.9))
+    b.box(T(Vector3(wx, y0 + 0.02, wz)), Vector3(9.0, 0.02, 12.0), M.concrete, false)
+    for k in 5:
+        b.box(T(Vector3(wx, y0 + 0.035, wz - 4.8 + k * 2.4)), Vector3(8.6, 0.01, 0.15), M.dark_metal, false)
+    var kx := wx + 9.5
+    b.box(T(Vector3(kx, y0 + 1.5, wz - 4.0)), Vector3(4.0, 3.0, 4.0), M.stucco[2])
+    b.box(T(Vector3(kx, y0 + 3.1, wz - 4.0)), Vector3(4.6, 0.25, 4.6), canopy)
+    b.box(T(Vector3(kx, y0 + 1.6, wz - 1.98)), Vector3(2.4, 1.2, 0.05), M.glass, false)
+    var sp := Vector3(wx + 2.0, y0, front - 3.0)
+    b.box(T(sp + Vector3(0, 2.5, 0)), Vector3(0.3, 5.0, 0.3), M.metal)
+    b.box(T(sp + Vector3(0, 5.6, 0)), Vector3(7.0, 1.6, 0.3), canopy)
+    wash_sign = _label("LAVA-RÁPIDO", sp + Vector3(0, 5.75, 0.17), 0.0, 110, Color(1, 1, 1), true)
+    wash_info = _label("À VENDA - $ 12.000", sp + Vector3(0, 5.15, 0.17), 0.0, 70, Color(1.0, 0.85, 0.25), true)
+
+
+func set_wash_level(lv: int) -> void:
+    if wash_info == null:
+        return
+    var text := "À VENDA - $ 12.000"
+    if lv == 1:
+        text = "SEU - $ 250/min"
+    elif lv >= 2:
+        text = "SEU - $ 600/min"
+    wash_info.text = text
+    wash_info.modulate = Color(1.0, 0.85, 0.25) if lv == 0 else Color(0.5, 1.0, 0.5)
 
 
 func _vacant_block(b: GeoBuilder, cx: float, cz: float) -> void:

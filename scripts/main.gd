@@ -9,6 +9,8 @@ var current_vehicle: Vehicle = null
 var npcs: Array[Npc] = []
 var mission: Mission
 var traffic: Traffic
+var progress: Progress
+var garage: Garage
 
 
 func _ready() -> void:
@@ -57,10 +59,24 @@ func _ready() -> void:
     hud = Hud.new()
     add_child(hud)
 
+    progress = Progress.new()
+    progress.name = "Progress"
+    if "--autotest" in OS.get_cmdline_user_args():
+        progress.save_path = "user://save_autotest.json"
+        progress.reset()
+    progress.load_game()
+    add_child(progress)
+    hud.on_new_game = _new_game
+
     mission = Mission.new()
     mission.name = "Mission"
     add_child(mission)
     mission.setup(self)
+
+    garage = Garage.new()
+    garage.name = "Garage"
+    add_child(garage)
+    garage.setup(self)
     Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
     if "--autotest" in OS.get_cmdline_user_args():
@@ -162,7 +178,14 @@ func force_enter(v: Vehicle) -> void:
 func on_interact() -> void:
     if mission.handle_interact():
         return
+    if garage.handle_interact():
+        return
     toggle_vehicle()
+
+
+func _new_game() -> void:
+    progress.reset()
+    get_tree().reload_current_scene()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -184,7 +207,9 @@ func _process(_delta: float) -> void:
         var kmh := absf(current_vehicle.forward_speed()) * 3.6
         hud.set_speed(kmh, true)
         hud.set_prompt("E - sair do veículo" if current_vehicle.linear_velocity.length() <= 6.0 else "")
+        hud.set_nitro(current_vehicle.nitro / maxf(current_vehicle.nitro_cap, 0.01), current_vehicle.nitro_cap > 0.0)
     else:
         hud.set_speed(0.0, false)
+        hud.set_nitro(0.0, false)
         var near := nearest_vehicle()
         hud.set_prompt("E - entrar no veículo" if near else "")

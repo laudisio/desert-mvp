@@ -63,7 +63,12 @@ var chapter := 0
 var state := S.IDLE
 var time_left := 0.0
 var quality := 0.0
-var money := 0
+var replay := false
+var money: int:
+    get:
+        return main.progress.money if main else 0
+    set(v):
+        main.progress.money = v
 var overrides_prompt := false
 var prompt_text := ""
 var _line := 0
@@ -124,7 +129,29 @@ func setup(main_node: Node) -> void:
     _build_ui()
     _build_marker()
     _build_crates()
-    _set_chapter(0)
+    replay = main.progress.replay
+    main.progress.income.connect(_on_income)
+    _set_chapter(main.progress.chapter)
+
+
+func _on_income(amount: int) -> void:
+    _show_toast("+%s do lava-rápido" % _fmt_money(amount))
+
+
+func _lv(id: String) -> int:
+    return main.progress.level(id)
+
+
+func zone_w(i: int) -> float:
+    return (ZONE_4 if ch().hard else ZONE_3)[i] * Progress.LAB_ZONE[_lv("lab")]
+
+
+func needle_speed(i: int) -> float:
+    return (SPEED_4 if ch().hard else SPEED_3)[i] * Progress.LAB_SPEED[_lv("lab")]
+
+
+func hit_damage(rel_speed: float) -> float:
+    return clampf(rel_speed * 2.2, 5.0, 22.0) * Progress.ARMOR[_lv("armor")]
 
 
 func ch() -> Dictionary:
@@ -137,11 +164,17 @@ func lines() -> Array:
 
 func _set_chapter(i: int) -> void:
     chapter = i
+    var p: Progress = main.progress
     if chapter >= CHAPTERS.size():
         state = S.DONE
         _done_time = 6.0
+        p.chapter = 0
+        p.replay = true
+        p.save()
         return
     state = S.IDLE
+    p.chapter = chapter
+    p.save()
     veh = main.vehicles[ch().veh]
     for n: Npc in main.npcs:
         if n.kind == ch().giver:
@@ -414,7 +447,7 @@ func _start_cook() -> void:
 
 func _setup_step(i: int) -> void:
     _step = i
-    var w: float = (ZONE_4 if ch().hard else ZONE_3)[i]
+    var w := zone_w(i)
     _zone_c = randf_range(w * 0.5 + 0.08, 1.0 - w * 0.5 - 0.08)
     _needle = 0.0
     _needle_dir = 1.0
@@ -436,7 +469,7 @@ func _update_needle() -> void:
 func cook_press() -> void:
     if state != S.COOK or _step_pause > 0.0:
         return
-    var half: float = (ZONE_4 if ch().hard else ZONE_3)[_step] * 0.5
+    var half := zone_w(_step) * 0.5
     var d := absf(_needle - _zone_c)
     var score := 1.0 - 0.3 * (d / half) if d <= half else maxf(0.0, 0.6 - (d - half) * 2.5)
     _scores.append(score)
@@ -505,7 +538,7 @@ func _on_rival_hit(body: Node) -> void:
     if body != veh or state != S.CHASE or _hit_cd > 0.0 or _rel_prev < 2.0:
         return
     _hit_cd = 0.6
-    health = maxf(0.0, health - clampf(_rel_prev * 2.2, 5.0, 22.0))
+    health = maxf(0.0, health - hit_damage(_rel_prev))
 
 
 func _physics_process(delta: float) -> void:
@@ -536,6 +569,7 @@ func _finish(success: bool, reason := "") -> void:
         var bonus := time_left * 20.0 if ch().time > 0.0 else health * 40.0
         var pay := int(roundf((float(ch().pay) * (0.5 + quality * 0.5) + bonus) / 10.0)) * 10
         money += pay
+        main.progress.save()
         result_title.text = "MISSÃO CONCLUÍDA"
         result_title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
         var first := "Tempo: %s" % _fmt_time(ch().time - time_left) if ch().time > 0.0 else "Trailer: %d%% inteiro" % roundi(health)
@@ -604,6 +638,8 @@ func _process(delta: float) -> void:
         S.IDLE:
             target = giver.global_position + Vector3.UP * 2.5
             obj = "Fale com %s %s" % [ch().label, ch().where]
+            if replay:
+                obj = "Trabalho extra (%s): fale com %s" % [ch().title, ch().label]
             if _can_talk():
                 overrides_prompt = true
                 prompt_text = "E - falar com %s" % ch().label
@@ -681,6 +717,13 @@ func _process(delta: float) -> void:
             _done_time -= delta
             if _done_time > 0.0:
                 obj = "Todas as missões concluídas! Obrigado por jogar."
+            else:
+                replay = true
+                _set_chapter(0)
+                _show_toast("Trabalhos extras liberados: fale com %s" % ch().label)
+
+    money_lbl.visible = money > 0
+    money_lbl.text = _fmt_money(money)
 
     if _timed and state in [S.PICKUP, S.DRIVE_LAB, S.DELIVER]:
         time_left -= delta
@@ -740,7 +783,7 @@ func _process_cook(delta: float) -> void:
             else:
                 _finish_cook()
         return
-    _needle += _needle_dir * (SPEED_4 if ch().hard else SPEED_3)[_step] * delta
+    _needle += _needle_dir * needle_speed(_step) * delta
     if _needle > 1.0:
         _needle = 2.0 - _needle
         _needle_dir = -1.0

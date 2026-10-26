@@ -122,6 +122,7 @@ func _run() -> void:
     await _shot("17_restaurante_npcs")
     rig.zoom = 1.0
     await _mission_test(city, rv)
+    await _garage_test(city)
     await _traffic_test(city)
     # aerial
     rig.target = null
@@ -223,7 +224,10 @@ func _mission_test(city: City, rv: Vehicle) -> void:
     print("[autotest] mission chapter now=", m.chapter, " giver=", m.giver.kind, " state idle=", m.state == Mission.S.IDLE)
     await _chapter2(city, m)
     await _chapter3(city, m, rv)
-    m.state = Mission.S.IDLE
+    m._done_time = 0.01
+    await _wait(0.3)
+    var pr: Progress = main.progress
+    print("[autotest] replay idle=", m.state == Mission.S.IDLE, " chapter=", m.chapter, " replay=", m.replay, " saved chapter=", pr.chapter, " saved replay=", pr.replay, " objective=", m.objective.text)
     var ex: Vector3 = rv.global_position
     while main.current_vehicle != null:
         main.toggle_vehicle()
@@ -367,6 +371,106 @@ func _chapter3(city: City, m: Mission, rv: Vehicle) -> void:
     main.on_interact()
     await _wait(0.5)
     print("[autotest] all done state=", m.state == Mission.S.DONE, " objective=", m.objective.text)
+
+
+func _garage_test(city: City) -> void:
+    var pr: Progress = main.progress
+    var g: Garage = main.garage
+    var m: Mission = main.mission
+    var sedan: Vehicle = main.vehicles[0]
+    var rv: Vehicle = main.vehicles[1]
+    var base_power := sedan._base_power
+    var base_rv := rv.engine_power
+    var rival_speed := m.rival.ai_max_speed if is_instance_valid(m.rival) else -1.0
+    var base_zone := m.zone_w(0)
+    var base_dmg := m.hit_damage(10.0)
+    print("[autotest] garage start money=", pr.money, " levels=", pr.levels)
+    var earned := pr.money
+    pr.money = 100
+    print("[autotest] garage broke buy=", g.try_buy(0), " msg=", g.feedback.text, " lv=", pr.level("armor"))
+    pr.money = earned
+    while main.current_vehicle != null:
+        main.current_vehicle.linear_velocity = Vector3.ZERO
+        main.toggle_vehicle()
+        await _wait(0.3)
+    main.player.teleport(sedan.global_transform * Vector3(2.2, 0.3, 0))
+    await _wait(0.3)
+    main.on_interact()
+    await _wait(0.3)
+    _place_vehicle(sedan, city.garage_spot, PI)
+    main.rig.yaw = 0.0
+    await _wait(1.0)
+    print("[autotest] garage near=", g.near(), " prompt=", main.hud.prompt.text)
+    await _shot("36_oficina_fora")
+    main.on_interact()
+    await _wait(0.3)
+    print("[autotest] garage open=", g.is_open, " frozen=", main.player.frozen, " driving=", sedan.driving)
+    await _shot("37_oficina_menu")
+    for i in 4:
+        g.try_buy(i)
+    print("[autotest] garage bought money=", pr.money, " levels=", pr.levels, " msg=", g.feedback.text)
+    pr.money = 80000
+    pr.changed.emit()
+    var n := 0
+    for i in Progress.ORDER.size():
+        while g.try_buy(i):
+            n += 1
+    print("[autotest] garage maxed buys=", n, " levels=", pr.levels, " money=", pr.money, " again=", g.try_buy(0), " msg=", g.feedback.text)
+    await _shot("38_oficina_max")
+    var ev := InputEventKey.new()
+    ev.physical_keycode = KEY_ESCAPE
+    ev.keycode = KEY_ESCAPE
+    ev.pressed = true
+    Input.parse_input_event(ev)
+    await _wait(0.3)
+    ev = ev.duplicate()
+    ev.pressed = false
+    Input.parse_input_event(ev)
+    await _wait(0.2)
+    print("[autotest] garage closed=", not g.is_open, " paused=", get_tree().paused, " driving=", sedan.driving)
+    print("[autotest] engine sedan ", base_power, " -> ", sedan.engine_power, " max_speed=", sedan.max_speed, " rv ", base_rv, " -> ", rv.engine_power, " rival ai_max=", rival_speed)
+    print("[autotest] lab zone ", base_zone, " -> ", m.zone_w(0), " speed=", m.needle_speed(0))
+    print("[autotest] armor dmg ", base_dmg, " -> ", m.hit_damage(10.0))
+    _place_vehicle(sedan, Vector3(city.garage_spot.x, city.garage_spot.y, city.garage_spot.z + 4.0), 0.0)
+    await _wait(0.5)
+    var nit0 := sedan.nitro
+    Input.action_press("move_forward")
+    Input.action_press("sprint")
+    var boosted := false
+    for i in 60:
+        await get_tree().physics_frame
+        boosted = boosted or sedan.boosting
+    await _shot("39_nitro")
+    Input.action_release("sprint")
+    var nit1 := sedan.nitro
+    for i in 30:
+        await get_tree().physics_frame
+    Input.action_release("move_forward")
+    print("[autotest] nitro cap=", sedan.nitro_cap, " boosted=", boosted, " ", nit0, " -> ", nit1, " -> ", sedan.nitro, " hud=", main.hud.nitro_bg.visible)
+    sedan.linear_velocity = Vector3.ZERO
+    var m0 := pr.money
+    pr.income_t = Progress.INCOME_PERIOD - 0.2
+    await _wait(0.6)
+    print("[autotest] income ", m0, " -> ", pr.money, " toast=", m.toast.text)
+    var p2 := Progress.new()
+    p2.save_path = pr.save_path
+    var ok := p2.load_game()
+    print("[autotest] save load=", ok, " money=", p2.money, "==", pr.money, " levels=", p2.levels == pr.levels, " chapter=", p2.chapter, " replay=", p2.replay)
+    var bad := FileAccess.open("user://save_bad.json", FileAccess.WRITE)
+    bad.store_string("{not json")
+    bad.close()
+    p2.save_path = "user://save_bad.json"
+    print("[autotest] corrupt load=", p2.load_game(), " money still=", p2.money)
+    p2.free()
+    while main.current_vehicle != null:
+        main.current_vehicle.linear_velocity = Vector3.ZERO
+        main.toggle_vehicle()
+        await _wait(0.3)
+    var wash_view := Vector3(city.garage_spot.x + 14.0, city.garage_spot.y + 0.3, city.garage_spot.z + 10.0)
+    main.player.teleport(wash_view)
+    main.rig.yaw = city_yaw_toward(wash_view, Vector3(city.garage_spot.x + 23.0, 0.0, city.garage_spot.z - 6.0))
+    await _wait(0.8)
+    await _shot("40_lava_rapido")
 
 
 func _traffic_test(city: City) -> void:
