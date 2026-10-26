@@ -140,6 +140,11 @@ func _make_materials() -> void:
     M.booth = Mats.solid("booth", Color(0.62, 0.1, 0.08), 0.5)
     M.menu_board = Mats.solid("menu_board", Color(0.08, 0.07, 0.06), 0.7)
     M.ceiling_lamp = Mats.emissive("ceiling_lamp", Color(1.0, 0.94, 0.8), 2.0)
+    M.foundation = Mats.make("foundation", Color(0.62, 0.58, 0.54), "concrete", 0.6, 0.95, "rough")
+    M.gutter = Mats.solid("gutter", Color(0.88, 0.87, 0.84), 0.5)
+    M.chrome = Mats.solid("chrome", Color(0.82, 0.83, 0.85), 0.2, 1.0)
+    M.shutters = [Mats.solid("shutter_green", Color(0.22, 0.34, 0.27), 0.7), Mats.solid("shutter_blue", Color(0.2, 0.3, 0.42), 0.7),
+        Mats.solid("shutter_brown", Color(0.38, 0.25, 0.16), 0.7), Mats.solid("shutter_white", Color(0.9, 0.9, 0.86), 0.7)]
     M.house_stucco = Mats.make("house_stucco", Color(0.84, 0.74, 0.6), "grain", 0.5, 0.95, "stucco")
     M.house_trim = Mats.solid("house_trim", Color(0.36, 0.25, 0.17), 0.7)
     M.house_roof = Mats.make("house_roof", Color(0.36, 0.29, 0.24), "grain", 1.0, 0.95, "rough")
@@ -316,6 +321,51 @@ func _bx(b: GeoBuilder, xf: Transform3D, pos: Vector3, size: Vector3, mat: Mater
     b.box(xf * T(pos, yaw), size, mat, collide)
 
 
+## Pitched roof sitting on a wall top at `top`, with fascia/gutter trim.
+func _roof(b: GeoBuilder, xf: Transform3D, top: Vector3, rw: float, rd: float, rh: float, mat: Material, hip: bool) -> void:
+    if hip:
+        b.mesh(GeoBuilder.hip_roof_mesh(rw, rd, rh), xf * T(top), mat)
+    else:
+        b.mesh(GeoBuilder.prism_mesh(Vector3(rd, rh, rw)), xf * T(top + Vector3(0, rh * 0.5, 0), PI * 0.5), mat)
+    b.box(xf * T(top + Vector3(0, -0.08, -rd * 0.5)), Vector3(rw + 0.04, 0.18, 0.1), M.gutter, false)
+    b.box(xf * T(top + Vector3(0, -0.08, rd * 0.5)), Vector3(rw + 0.04, 0.18, 0.1), M.gutter, false)
+    b.box(xf * T(top + Vector3(0, -0.02, 0)), Vector3(rw, 0.04, rd), M.trim, false)
+    if hip:
+        for sx in [-1.0, 1.0]:
+            b.box(xf * T(top + Vector3(sx * rw * 0.5, -0.08, 0)), Vector3(0.1, 0.18, rd), M.gutter, false)
+
+
+## Framed window on a facade facing local -z.
+func _window(b: GeoBuilder, xf: Transform3D, ww: float, wh: float, frame: Material, shutter: Material) -> void:
+    b.box(xf * T(Vector3(0, 0, -0.03)), Vector3(ww, wh, 0.06), M.glass, false)
+    for sy in [-1.0, 1.0]:
+        b.box(xf * T(Vector3(0, sy * (wh * 0.5 + 0.05), -0.06)), Vector3(ww + 0.2, 0.1, 0.12), frame, false)
+    for sx in [-1.0, 1.0]:
+        b.box(xf * T(Vector3(sx * (ww * 0.5 + 0.05), 0, -0.06)), Vector3(0.1, wh, 0.12), frame, false)
+    b.box(xf * T(Vector3(0, -wh * 0.5 - 0.12, -0.12)), Vector3(ww + 0.35, 0.07, 0.22), frame, false)
+    b.box(xf * T(Vector3(0, 0, -0.07)), Vector3(0.05, wh, 0.03), frame, false)
+    b.box(xf * T(Vector3(0, wh * 0.1, -0.07)), Vector3(ww, 0.05, 0.03), frame, false)
+    if shutter:
+        for sx in [-1.0, 1.0]:
+            b.box(xf * T(Vector3(sx * (ww * 0.5 + 0.38), 0, -0.05)), Vector3(0.52, wh + 0.2, 0.05), shutter, false)
+            for k in 5:
+                b.box(xf * T(Vector3(sx * (ww * 0.5 + 0.38), -wh * 0.4 + k * wh * 0.2, -0.085)), Vector3(0.44, 0.03, 0.02), shutter, false)
+
+
+## Door with frame, knob, light and two steps; local origin at floor level of a -z facade.
+func _door(b: GeoBuilder, xf: Transform3D, mat: Material, frame: Material) -> void:
+    b.box(xf * T(Vector3(0, 1.05 + 0.3, -0.04)), Vector3(1.0, 2.1, 0.08), mat, false)
+    b.box(xf * T(Vector3(0, 2.46, -0.07)), Vector3(1.4, 0.14, 0.14), frame, false)
+    for sx in [-1.0, 1.0]:
+        b.box(xf * T(Vector3(sx * 0.6, 1.35, -0.07)), Vector3(0.14, 2.1, 0.12), frame, false)
+    for k in 2:
+        b.box(xf * T(Vector3(0, 0.33 + k * 0.4 + 0.4, -0.06)), Vector3(0.7, 0.03, 0.02), frame, false)
+    b.mesh(GeoBuilder.sphere_mesh(0.045, 0.09, 8, 4), xf * T(Vector3(0.36, 1.3, -0.11)), M.chrome)
+    b.box(xf * T(Vector3(0.85, 2.0, -0.08)), Vector3(0.12, 0.22, 0.1), M.lamp, false)
+    b.box(xf * T(Vector3(0, 0.15, -0.5)), Vector3(1.8, 0.3, 1.0), M.concrete, false)
+    b.box(xf * T(Vector3(0, 0.07, -1.15)), Vector3(1.8, 0.14, 0.4), M.concrete, false)
+
+
 func _house_lot(b: GeoBuilder, xf: Transform3D) -> void:
     var y0 := CURB
     var stucco: Material = M.stucco[rng.randi() % M.stucco.size()]
@@ -339,7 +389,12 @@ func _house_lot(b: GeoBuilder, xf: Transform3D) -> void:
     # house + garage bodies
     _bx(b, xf, Vector3(hx, y0 + h * 0.5, sb + d * 0.5), Vector3(w, h, d), stucco)
     _bx(b, xf, Vector3(gx, y0 + 1.4, sb + gd * 0.5), Vector3(gw, 2.8, gd), stucco)
+    _bx(b, xf, Vector3(hx, y0 + 0.15, sb + d * 0.5), Vector3(w + 0.08, 0.3, d + 0.08), M.foundation, false)
+    _bx(b, xf, Vector3(gx, y0 + 0.15, sb + gd * 0.5), Vector3(gw + 0.08, 0.3, gd + 0.08), M.foundation, false)
     _bx(b, xf, Vector3(gx, y0 + 1.1, sb - 0.04), Vector3(3.0, 2.2, 0.1), M.garage, false)
+    _bx(b, xf, Vector3(gx, y0 + 2.28, sb - 0.07), Vector3(3.3, 0.14, 0.12), M.trim, false)
+    for sx in [-1.0, 1.0]:
+        _bx(b, xf, Vector3(gx + sx * 1.58, y0 + 1.14, sb - 0.07), Vector3(0.14, 2.28, 0.12), M.trim, false)
     for k in 4:
         _bx(b, xf, Vector3(gx, y0 + 0.3 + k * 0.55, sb - 0.1), Vector3(3.0, 0.03, 0.02), M.trim, false)
 
@@ -358,20 +413,31 @@ func _house_lot(b: GeoBuilder, xf: Transform3D) -> void:
         _bx(b, xf, Vector3(hx + rng.randf_range(-2.0, 2.0), y0 + h + 0.45, sb + d * 0.65), Vector3(1.0, 0.8, 1.0), M.metal)
     else:
         var roof_mat: Material = M.roof_tile if rng.randf() < 0.5 else M.roof_shingle
-        b.mesh(GeoBuilder.prism_mesh(Vector3(d + 0.8, 1.4, w + 0.8)), xf * T(Vector3(hx, y0 + h + 0.7, sb + d * 0.5), PI * 0.5), roof_mat)
-        b.mesh(GeoBuilder.prism_mesh(Vector3(gd + 0.6, 1.0, gw + 0.4)), xf * T(Vector3(gx, y0 + 2.8 + 0.5, sb + gd * 0.5), PI * 0.5), roof_mat)
+        var hip := rng.randf() < 0.5
+        var ov := 0.5
+        _roof(b, xf, Vector3(hx, y0 + h, sb + d * 0.5), w + ov * 2.0, d + ov * 2.0, 1.5, roof_mat, hip)
+        _roof(b, xf, Vector3(gx, y0 + 2.8, sb + gd * 0.5), gw + 0.6, gd + 0.6, 1.0, roof_mat, hip)
+        if rng.randf() < 0.4:
+            var cx := hx + gside * -(w * 0.5 - 1.2)
+            _bx(b, xf, Vector3(cx, y0 + h + 1.0, sb + d * 0.6), Vector3(0.8, 2.2, 0.8), M.brick)
+            _bx(b, xf, Vector3(cx, y0 + h + 2.15, sb + d * 0.6), Vector3(0.95, 0.1, 0.95), M.concrete, false)
 
     # windows + door
+    var shutter: Material = null if pueblo or rng.randf() < 0.4 else M.shutters[rng.randi() % M.shutters.size()]
+    var frame: Material = M.wood if pueblo else M.trim
     for sx in [-1.0, 1.0]:
         var wx: float = hx + sx * (w * 0.5 - 1.7)
-        _bx(b, xf, Vector3(wx, y0 + 1.6, sb - 0.03), Vector3(1.5, 1.2, 0.06), M.glass, false)
-        _bx(b, xf, Vector3(wx, y0 + 0.97, sb - 0.08), Vector3(1.7, 0.08, 0.16), M.trim, false)
-        _bx(b, xf, Vector3(wx, y0 + 2.26, sb - 0.07), Vector3(1.7, 0.12, 0.14), M.wood if pueblo else M.trim, false)
-        _bx(b, xf, Vector3(wx, y0 + 1.6, sb - 0.07), Vector3(0.06, 1.2, 0.04), M.trim, false)
-        var side_x: float = hx + sx * (w * 0.5 + 0.03)
-        _bx(b, xf, Vector3(side_x, y0 + 1.6, sb + d * 0.5), Vector3(0.06, 1.1, 1.3), M.glass, false)
-    _bx(b, xf, Vector3(hx, y0 + 1.05, sb - 0.04), Vector3(1.0, 2.1, 0.08), M.doors[rng.randi() % M.doors.size()], false)
-    _bx(b, xf, Vector3(hx, y0 + 0.06, sb - 0.7), Vector3(1.6, 0.12, 1.2), M.concrete, false)
+        _window(b, xf * T(Vector3(wx, y0 + 1.6, sb)), 1.5, 1.2, frame, shutter)
+        _window(b, xf * T(Vector3(hx + sx * w * 0.5, y0 + 1.6, sb + d * 0.5), -sx * PI * 0.5), 1.3, 1.1, frame, null)
+    _door(b, xf * T(Vector3(hx, y0, sb)), M.doors[rng.randi() % M.doors.size()], frame)
+
+    if not pueblo and rng.randf() < 0.45:
+        for sx in [-1.0, 1.0]:
+            b.mesh(GeoBuilder.cyl_mesh(0.11, 0.13, 2.5, 10), xf * T(Vector3(hx + sx * 1.6, y0 + 0.4 + 1.25, sb - 1.8)), M.trim)
+            b.shape_box(xf * T(Vector3(hx + sx * 1.6, y0 + 1.5, sb - 1.8)), Vector3(0.26, 2.5, 0.26))
+        _bx(b, xf, Vector3(hx, y0 + 2.95, sb - 0.95), Vector3(3.8, 0.12, 2.0), frame, false)
+        _bx(b, xf, Vector3(hx, y0 + 2.83, sb - 1.9), Vector3(3.8, 0.18, 0.12), frame, false)
+        _bx(b, xf, Vector3(hx, y0 + 0.2, sb - 1.0), Vector3(3.8, 0.4, 2.0), M.concrete)
 
     if pueblo and rng.randf() < 0.45:
         for sx in [-1.0, 1.0]:
@@ -541,18 +607,15 @@ func _street_light(b: GeoBuilder, xf: Transform3D) -> void:
 
 # ---------------------------------------------------------------- props
 
-func _car_prop(b: GeoBuilder, xf: Transform3D, body: Material) -> void:
-    b.box(xf * T(Vector3(0, 0.62, 0)), Vector3(1.8, 0.62, 4.4), body, false)
-    b.box(xf * T(Vector3(0, 1.2, -0.2)), Vector3(1.6, 0.55, 2.2), M.glass, false)
-    b.box(xf * T(Vector3(0, 1.49, -0.25)), Vector3(1.56, 0.06, 1.9), body, false)
-    for sx in [-0.62, 0.62]:
-        b.box(xf * T(Vector3(sx, 0.75, -2.21)), Vector3(0.35, 0.14, 0.04), M.tail, false)
-        b.box(xf * T(Vector3(sx, 0.75, 2.21)), Vector3(0.35, 0.14, 0.04), M.lamp, false)
-    var wheel_basis := Basis(Vector3.BACK, PI * 0.5)
-    for sx in [-0.82, 0.82]:
-        for sz in [-1.35, 1.35]:
-            b.mesh(GeoBuilder.cyl_mesh(0.34, 0.34, 0.24, 10), xf * Transform3D(wheel_basis, Vector3(sx, 0.34, sz)), M.tire)
-    b.shape_box(xf * T(Vector3(0, 0.85, 0)), Vector3(1.8, 1.3, 4.4))
+func _car_prop(b: GeoBuilder, xf: Transform3D, body: Material, kind := "") -> void:
+    if kind == "":
+        kind = CarMesh.KINDS[rng.randi() % CarMesh.KINDS.size()]
+    var car := CarMesh.get_car(kind)
+    b.mesh_multi(car.mesh, xf, CarMesh.role_materials(body))
+    var wheel_mats := [M.tire, Mats.solid("hub", Color(0.75, 0.75, 0.78), 0.3, 0.9)]
+    for wd in car.wheels:
+        b.mesh_multi(CarMesh.get_wheel(wd[1], wd[2]), xf * T(wd[0]), wheel_mats)
+    b.shape_box(xf * T(car.center), car.size)
 
 
 func _plant(b: GeoBuilder, xf: Transform3D) -> void:
@@ -917,10 +980,8 @@ func _family_house(b: GeoBuilder, xf: Transform3D) -> void:
 
     # low gable roof with brown fascia + brick chimney
     var rw := hx1 - hx0 + 1.4
-    b.mesh(GeoBuilder.prism_mesh(Vector3(d + 1.4, 1.2, rw)), xf * T(Vector3(0, y0 + h + 0.6, sb + d * 0.5), PI * 0.5), M.house_roof)
-    _bx(b, xf, Vector3(0, y0 + h - 0.05, sb - 0.68), Vector3(rw, 0.24, 0.08), trim, false)
-    _bx(b, xf, Vector3(0, y0 + h - 0.05, sb + d + 0.68), Vector3(rw, 0.24, 0.08), trim, false)
-    _bx(b, xf, Vector3(0, y0 + h - 0.15, sb + d * 0.5), Vector3(rw, 0.06, d + 1.4), trim, false)
+    _roof(b, xf, Vector3((hx0 + hx1) * 0.5, y0 + h, sb + d * 0.5), rw, d + 1.4, 1.3, M.house_roof, true)
+    _bx(b, xf, Vector3((hx0 + hx1) * 0.5, y0 + 0.15, sb + d * 0.5), Vector3(hx1 - hx0 + 0.08, 0.3, d + 0.08), M.foundation, false)
     _bx(b, xf, Vector3(-5.3, y0 + h + 0.9, sb + d * 0.5 + 1.2), Vector3(1.1, 2.8, 1.1), M.brick)
     _bx(b, xf, Vector3(-5.3, y0 + h + 2.35, sb + d * 0.5 + 1.2), Vector3(1.3, 0.12, 1.3), M.concrete, false)
 
@@ -930,17 +991,10 @@ func _family_house(b: GeoBuilder, xf: Transform3D) -> void:
         var wx: float = wdef[0]
         var ww: float = wdef[1]
         var wh: float = wdef[2]
-        _bx(b, xf, Vector3(wx, y0 + 1.6, sb - 0.03), Vector3(ww, wh, 0.06), M.glass, false)
-        _bx(b, xf, Vector3(wx, y0 + 1.6 - wh * 0.5 - 0.05, sb - 0.09), Vector3(ww + 0.2, 0.08, 0.18), trim, false)
-        _bx(b, xf, Vector3(wx, y0 + 1.6, sb - 0.07), Vector3(0.05, wh, 0.04), M.trim, false)
-        for sx in [-1.0, 1.0]:
-            _bx(b, xf, Vector3(wx + sx * (ww * 0.5 + 0.3), y0 + 1.6, sb - 0.06), Vector3(0.5, wh + 0.1, 0.06), trim, false)
-    _bx(b, xf, Vector3(-1.0, y0 + 1.05, sb - 0.04), Vector3(1.0, 2.1, 0.08), M.doors[0], false)
-    _bx(b, xf, Vector3(-1.0, y0 + 2.2, sb - 0.08), Vector3(1.3, 0.12, 0.14), trim, false)
-    _bx(b, xf, Vector3(-0.3, y0 + 1.9, sb - 0.1), Vector3(0.12, 0.22, 0.1), M.lamp, false)
-    _bx(b, xf, Vector3(-1.0, y0 + 0.07, sb - 0.5), Vector3(1.6, 0.14, 1.0), M.concrete, false)
-    for sx in [-1.0, 1.0]:
-        _bx(b, xf, Vector3(sx * (hx1 + 0.03), y0 + 1.6, sb + d * 0.55), Vector3(0.06, 1.1, 1.4), M.glass, false)
+        _window(b, xf * T(Vector3(wx, y0 + 1.6, sb)), ww, wh, M.trim, trim)
+    _door(b, xf * T(Vector3(-1.0, y0, sb)), M.doors[0], trim)
+    _window(b, xf * T(Vector3(hx0, y0 + 1.6, sb + d * 0.55), PI * 0.5), 1.4, 1.1, M.trim, null)
+    _window(b, xf * T(Vector3(hx1, y0 + 1.6, sb + d * 0.55), -PI * 0.5), 1.4, 1.1, M.trim, null)
     _bx(b, xf, Vector3(-3.0, y0 + 1.6, sb + d + 0.03), Vector3(2.4, 1.2, 0.06), M.glass, false)
     _bx(b, xf, Vector3(0.6, y0 + 1.05, sb + d + 0.03), Vector3(1.8, 2.1, 0.06), M.glass, false)
 
@@ -973,6 +1027,6 @@ func _family_house(b: GeoBuilder, xf: Transform3D) -> void:
         _plant(b, xf * T(p, rng.randf() * TAU))
     _bx(b, xf, Vector3(7.0, y0 + 0.55, 0.5), Vector3(0.08, 1.1, 0.08), M.wood)
     _bx(b, xf, Vector3(7.0, y0 + 1.15, 0.5), Vector3(0.22, 0.24, 0.45), M.dark_metal, false)
-    _car_prop(b, xf * T(Vector3(gx, y0, sb - 2.6)), M.family_car)
+    _car_prop(b, xf * T(Vector3(gx, y0, sb - 2.6)), M.family_car, "suv")
     for spec in [["mulher", -2.6, 2.4, 0.2], ["forte", -0.6, 1.8, 0.0], ["adolescente", 1.2, 2.3, -0.2]]:
         npc_spots.append([spec[0], xf * T(Vector3(spec[1], y0 + 0.01, spec[2]), PI + spec[3])])

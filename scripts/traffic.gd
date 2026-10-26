@@ -28,7 +28,7 @@ func setup(main_node: Node) -> void:
         var car := TrafficCar.new()
         car.name = "TrafficCar%d" % k
         add_child(car)
-        car.setup(self, k, city.M.cars[k % city.M.cars.size()], e[0], e[1], rng.randf_range(0.1, 0.7))
+        car.setup(self, k, CarMesh.KINDS[k % CarMesh.KINDS.size()], city.M.cars[k % city.M.cars.size()], e[0], e[1], rng.randf_range(0.1, 0.7))
         cars.append(car)
     for k in PED_COUNT:
         var p := Pedestrian.new()

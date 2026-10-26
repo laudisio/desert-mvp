@@ -38,13 +38,13 @@ static func inside(n: Vector2i) -> bool:
     return n.x >= 0 and n.y >= 0 and n.x <= City.N and n.y <= City.N
 
 
-func setup(tr: Traffic, idx: int, paint: Material, from_node: Vector2i, d: Vector2i, frac: float) -> void:
+func setup(tr: Traffic, idx: int, kind: String, paint: Material, from_node: Vector2i, d: Vector2i, frac: float) -> void:
     traffic = tr
     id = idx
     _rng.seed = 900 + idx
     collision_layer = 4
     collision_mask = 0
-    _build(paint)
+    _build(kind, paint)
     dir = d
     node = from_node + d
     var p0 := center(from_node) + d3(d) * 5.0 + right(d) * LANE
@@ -55,38 +55,25 @@ func setup(tr: Traffic, idx: int, paint: Material, from_node: Vector2i, d: Vecto
     global_transform = Transform3D(Basis(Vector3.UP, atan2(d.x, d.y)), p0)
 
 
-func _build(paint: Material) -> void:
-    var M: Dictionary = traffic.main.city.M
-    var parts := [
-        [Vector3(1.8, 0.62, 4.4), Vector3(0, 0.62, 0), paint],
-        [Vector3(1.6, 0.55, 2.2), Vector3(0, 1.2, -0.2), M.glass],
-        [Vector3(1.56, 0.06, 1.9), Vector3(0, 1.49, -0.25), paint],
-    ]
-    for sx in [-0.62, 0.62]:
-        parts.append([Vector3(0.35, 0.14, 0.04), Vector3(sx, 0.75, -2.21), M.tail])
-        parts.append([Vector3(0.35, 0.14, 0.04), Vector3(sx, 0.75, 2.21), M.lamp])
-    for p in parts:
-        var mi := MeshInstance3D.new()
-        mi.mesh = GeoBuilder.box_mesh(p[0])
-        mi.position = p[1]
-        mi.material_override = p[2]
-        add_child(mi)
-    for sx in [-0.82, 0.82]:
-        for sz in [-1.35, 1.35]:
-            var w := Node3D.new()
-            w.position = Vector3(sx, 0.34, sz)
-            var mi := MeshInstance3D.new()
-            mi.mesh = GeoBuilder.cyl_mesh(0.34, 0.34, 0.24, 10)
-            mi.material_override = M.tire
-            mi.rotation.z = PI * 0.5
-            w.add_child(mi)
-            add_child(w)
-            _wheels.append(w)
+func _build(kind: String, paint: Material) -> void:
+    var car := CarMesh.get_car(kind)
+    var mi := MeshInstance3D.new()
+    mi.mesh = car.mesh
+    add_child(mi)
+    CarMesh.apply(mi, CarMesh.role_materials(paint))
+    for wd in car.wheels:
+        var w := Node3D.new()
+        w.position = wd[0]
+        var wm := MeshInstance3D.new()
+        wm.mesh = CarMesh.get_wheel(wd[1], wd[2])
+        w.add_child(wm)
+        add_child(w)
+        _wheels.append(w)
     var cs := CollisionShape3D.new()
     var box := BoxShape3D.new()
-    box.size = Vector3(1.8, 1.3, 4.4)
+    box.size = car.size
     cs.shape = box
-    cs.position.y = 0.85
+    cs.position = car.center
     add_child(cs)
 
 
