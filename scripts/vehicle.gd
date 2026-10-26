@@ -24,6 +24,22 @@ var _playback: AudioStreamGeneratorPlayback
 var _audio_phase := 0.0
 var _mix_rate := 22050.0
 var _flipped_time := 0.0
+var paint_color := Color(0.38, 0.52, 0.44)
+var ai_target: Node3D = null
+var ai_max_speed := 25.0
+var _ai_stuck := 0.0
+var _ai_reverse := 0.0
+var nitro_cap := 0.0
+var nitro := 0.0
+var boosting := false
+var _base_power := 0.0
+var _base_speed := 0.0
+var _flame: MeshInstance3D
+var _rear_z := -2.35
+
+const NITRO_FORCE := 2.2
+const NITRO_SPEED := 11.0
+const NITRO_RECHARGE := 0.2
 
 
 func setup(kind_name: String) -> void:
@@ -42,7 +58,29 @@ func setup(kind_name: String) -> void:
         _build_rv()
     else:
         _build_sedan()
+    _rear_z = -3.95 if kind == "rv" else -2.35
+    _flame = MeshInstance3D.new()
+    var cone := CylinderMesh.new()
+    cone.top_radius = 0.0
+    cone.bottom_radius = 0.22
+    cone.height = 1.1
+    _flame.mesh = cone
+    _flame.material_override = Mats.emissive("nitro_flame", Color(0.35, 0.65, 1.0), 4.0)
+    _flame.rotation.x = -PI * 0.5
+    _flame.position = Vector3(0.45 if kind == "rv" else -0.5, 0.55 if kind == "rv" else 0.4, _rear_z - 0.5)
+    _flame.visible = false
+    add_child(_flame)
     _setup_audio()
+
+
+func apply_upgrades(engine_lv: int, nitro_lv: int) -> void:
+    if _base_power == 0.0:
+        _base_power = engine_power
+        _base_speed = max_speed
+    engine_power = _base_power * Progress.ENGINE_POWER[engine_lv]
+    max_speed = _base_speed + Progress.ENGINE_SPEED[engine_lv]
+    nitro_cap = Progress.NITRO_CAP[nitro_lv]
+    nitro = nitro_cap
 
 
 func _mesh(mesh: Mesh, mat: Material, pos: Vector3) -> MeshInstance3D:
@@ -82,15 +120,8 @@ func _add_wheel(pos: Vector3, radius: float, width: float, steer: bool, drive: b
     w.use_as_steering = steer
     w.use_as_traction = drive
     var tire := MeshInstance3D.new()
-    tire.mesh = GeoBuilder.cyl_mesh(radius, radius, width, 18)
-    tire.material_override = Mats.solid("tire", Color(0.06, 0.06, 0.06), 0.9)
-    tire.rotation.z = PI * 0.5
+    tire.mesh = CarMesh.get_wheel(radius, width)
     w.add_child(tire)
-    var hub := MeshInstance3D.new()
-    hub.mesh = GeoBuilder.cyl_mesh(radius * 0.55, radius * 0.55, width + 0.02, 10)
-    hub.material_override = Mats.solid("hub", Color(0.75, 0.75, 0.78), 0.3, 0.9)
-    hub.rotation.z = PI * 0.5
-    w.add_child(hub)
     add_child(w)
     if drive and not steer:
         rear_wheels.append(w)
@@ -102,19 +133,10 @@ func _build_sedan() -> void:
     brake_force = 30.0
     max_speed = 42.0
     center_of_mass = Vector3(0, 0.15, 0)
-    var paint := Mats.solid("sedan_paint", Color(0.38, 0.52, 0.44), 0.3, 0.6)
-    var glass := Mats.solid("glass", Color(0.1, 0.14, 0.18), 0.08, 0.6)
-    var dark := Mats.solid("dark_metal", Color(0.18, 0.18, 0.19), 0.5, 0.6)
-    var lamp := Mats.emissive("lamp", Color(1.0, 0.95, 0.8), 0.4)
-    _box(Vector3(1.84, 0.6, 4.5), paint, Vector3(0, 0.72, 0))
-    _box(Vector3(1.66, 0.55, 2.3), glass, Vector3(0, 1.29, -0.2))
-    _box(Vector3(1.62, 0.07, 1.95), paint, Vector3(0, 1.6, -0.25))
-    _box(Vector3(1.86, 0.18, 0.2), dark, Vector3(0, 0.5, 2.26))
-    _box(Vector3(1.86, 0.18, 0.2), dark, Vector3(0, 0.5, -2.26))
-    for sx in [-0.65, 0.65]:
-        _box(Vector3(0.38, 0.14, 0.05), lamp, Vector3(sx, 0.82, 2.26))
-        _box(Vector3(0.38, 0.14, 0.05), _tail_mat, Vector3(sx, 0.82, -2.26))
-        _box(Vector3(0.12, 0.1, 0.2), paint, Vector3(sx * 1.45, 1.12, 0.85))
+    var paint := Mats.solid("sedan_paint_" + paint_color.to_html(), paint_color, 0.3, 0.6)
+    var car := CarMesh.get_car("sedan")
+    var body := _mesh(car.mesh, null, Vector3.ZERO)
+    CarMesh.apply(body, CarMesh.role_materials(paint, _tail_mat))
     _shape(Vector3(1.84, 0.6, 4.5), Vector3(0, 0.72, 0))
     _shape(Vector3(1.66, 0.6, 2.3), Vector3(0, 1.3, -0.2))
     for sx in [-0.83, 0.83]:
@@ -139,20 +161,21 @@ func _build_rv() -> void:
     var glass := Mats.solid("glass", Color(0.1, 0.14, 0.18), 0.08, 0.6)
     var dark := Mats.solid("dark_metal", Color(0.18, 0.18, 0.19), 0.5, 0.6)
     var lamp := Mats.emissive("lamp", Color(1.0, 0.95, 0.8), 0.4)
-    _box(Vector3(2.4, 2.5, 6.4), body, Vector3(0, 1.95, -0.6))
-    _box(Vector3(2.3, 1.4, 1.6), body, Vector3(0, 1.35, 3.4))
-    _box(Vector3(2.42, 0.35, 6.42), stripe, Vector3(0, 1.45, -0.6))
-    _box(Vector3(2.32, 0.2, 1.62), stripe, Vector3(0, 1.45, 3.4))
-    _box(Vector3(2.0, 0.7, 0.05), glass, Vector3(0, 1.7, 4.21))
+    _mesh(CarMesh.loft([[-3.8, 0.75, 3.1, 1.17, 1.1, 0.22], [-3.72, 0.7, 3.2, 1.2, 1.14, 0.26], [2.52, 0.7, 3.2, 1.2, 1.14, 0.26], [2.6, 0.75, 3.12, 1.17, 1.1, 0.22]]), body, Vector3.ZERO)
+    _mesh(CarMesh.loft([[2.5, 0.65, 2.05, 1.15, 1.08, 0.14], [3.5, 0.65, 2.05, 1.15, 1.06, 0.14], [4.1, 0.68, 1.4, 1.15, 1.05, 0.16], [4.25, 0.75, 1.2, 1.1, 1.0, 0.14]]), body, Vector3.ZERO)
+    _box(Vector3(2.42, 0.35, 6.3), stripe, Vector3(0, 1.45, -0.6))
+    _box(Vector3(2.32, 0.2, 1.5), stripe, Vector3(0, 1.45, 3.3))
+    var ws := _box(Vector3(2.0, 0.85, 0.05), glass, Vector3(0, 1.72, 3.82))
+    ws.rotation.x = -atan2(0.6, 0.65)
     for sx in [-1.0, 1.0]:
-        _box(Vector3(0.05, 0.6, 1.2), glass, Vector3(sx * 1.16, 1.75, 3.4))
+        _box(Vector3(0.05, 0.55, 0.8), glass, Vector3(sx * 1.16, 1.65, 3.05))
         _box(Vector3(0.05, 0.6, 1.5), glass, Vector3(sx * 1.21, 2.35, -2.2))
         _box(Vector3(0.05, 0.6, 1.0), glass, Vector3(sx * 1.21, 2.35, 0.6))
-        _box(Vector3(0.4, 0.2, 0.05), lamp, Vector3(sx * 0.85, 1.0, 4.21))
+        _box(Vector3(0.4, 0.2, 0.05), lamp, Vector3(sx * 0.8, 0.98, 4.26))
         _box(Vector3(0.3, 0.3, 0.05), _tail_mat, Vector3(sx * 1.0, 1.2, -3.81))
     _box(Vector3(0.05, 1.9, 0.75), Mats.solid("rv_door", Color(0.85, 0.82, 0.72), 0.6), Vector3(-1.22, 1.75, -0.3))
     _box(Vector3(1.0, 0.4, 1.1), body, Vector3(0, 3.4, -1.2))
-    _box(Vector3(2.44, 0.25, 0.25), dark, Vector3(0, 0.75, 4.25))
+    _box(Vector3(2.3, 0.25, 0.25), dark, Vector3(0, 0.75, 4.3))
     _box(Vector3(2.44, 0.25, 0.25), dark, Vector3(0, 0.8, -3.85))
     _shape(Vector3(2.4, 2.5, 6.4), Vector3(0, 1.95, -0.6))
     _shape(Vector3(2.3, 1.4, 1.6), Vector3(0, 1.35, 3.4))
@@ -190,6 +213,10 @@ func _physics_process(delta: float) -> void:
         throttle = Input.get_axis("move_back", "move_forward")
         steer_in = Input.get_axis("move_right", "move_left")
         handbrake = Input.is_action_pressed("jump")
+    elif ai_target:
+        var ai := _ai_inputs(delta, fwd_speed)
+        throttle = ai.x
+        steer_in = ai.y
 
     var max_steer := lerpf(steer_low, steer_high, clampf(absf(fwd_speed) / 30.0, 0.0, 1.0))
     steering = move_toward(steering, steer_in * max_steer, 2.5 * delta)
@@ -211,9 +238,20 @@ func _physics_process(delta: float) -> void:
         else:
             ef = engine_power * reverse_ratio * throttle
             br = 0.0
-    if not driving:
+    if not driving and ai_target == null:
         br = brake_force * 0.5
-    if (ef > 0.0 and fwd_speed > max_speed) or (ef < 0.0 and fwd_speed < -max_speed * 0.3):
+    var top := ai_max_speed if ai_target else max_speed
+    boosting = driving and nitro > 0.0 and throttle > 0.0 and fwd_speed > -1.0 and Input.is_action_pressed("sprint")
+    if boosting:
+        nitro = maxf(0.0, nitro - delta)
+        ef *= NITRO_FORCE
+        top += NITRO_SPEED
+    else:
+        nitro = minf(nitro_cap, nitro + delta * NITRO_RECHARGE)
+    _flame.visible = boosting
+    if boosting:
+        _flame.scale = Vector3.ONE * randf_range(0.8, 1.15)
+    if (ef > 0.0 and fwd_speed > top) or (ef < 0.0 and fwd_speed < -max_speed * 0.3):
         ef = 0.0
     engine_force = ef
     brake = br
@@ -227,6 +265,27 @@ func _physics_process(delta: float) -> void:
     apply_central_force(-v * v.length() * 0.45)
     apply_central_force(-global_transform.basis.y * v.length_squared() * 0.8)
     _stabilize(delta)
+
+
+## Simple pursuit: aim at where the target will be, back up and re-aim when stuck.
+func _ai_inputs(delta: float, fwd_speed: float) -> Vector2:
+    var tgt := ai_target.global_position
+    var dist := global_position.distance_to(tgt)
+    if ai_target is RigidBody3D and dist > 12.0:
+        tgt += (ai_target as RigidBody3D).linear_velocity * clampf(dist / 30.0, 0.0, 1.2)
+    var l := global_transform.affine_inverse() * tgt
+    var ang := atan2(l.x, l.z)
+    if _ai_reverse > 0.0:
+        _ai_reverse -= delta
+        return Vector2(-1.0, -signf(ang))
+    if absf(fwd_speed) < 1.0:
+        _ai_stuck += delta
+        if _ai_stuck > 1.5:
+            _ai_stuck = 0.0
+            _ai_reverse = 1.3
+    else:
+        _ai_stuck = 0.0
+    return Vector2(1.0 if absf(ang) < 1.4 else 0.7, clampf(ang * 1.8, -1.0, 1.0))
 
 
 func _stabilize(delta: float) -> void:
@@ -248,10 +307,11 @@ func _stabilize(delta: float) -> void:
 
 
 func _process(_delta: float) -> void:
-    if driving and not _audio.playing:
+    var active := driving or ai_target != null
+    if active and not _audio.playing:
         _audio.play()
         _playback = _audio.get_stream_playback()
-    elif not driving and _audio.playing:
+    elif not active and _audio.playing:
         _audio.stop()
         _playback = null
     if _playback == null:

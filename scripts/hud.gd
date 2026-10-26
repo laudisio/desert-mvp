@@ -1,13 +1,16 @@
 class_name Hud
 extends CanvasLayer
 
-const HELP_TEXT := "WASD - andar / dirigir\nMouse - câmera   Roda - zoom\nShift - correr   Espaço - pular / freio de mão\nE - entrar / sair do veículo\nR - desvirar veículo\nF11 - tela cheia   Esc - pausa\nH - esconder ajuda"
+const HELP_TEXT := "WASD - andar / dirigir\nMouse - câmera   Roda - zoom\nShift - correr / nitro   Espaço - pular / freio de mão\nE - entrar / sair do veículo\nR - desvirar veículo\nF11 - tela cheia   Esc - pausa\nH - esconder ajuda"
 
 var help: Label
 var prompt: Label
 var speed: Label
 var fps: Label
 var pause_panel: Control
+var nitro_bg: ColorRect
+var nitro_fill: ColorRect
+var on_new_game: Callable
 
 
 func _ready() -> void:
@@ -25,6 +28,21 @@ func _ready() -> void:
     speed = _label(40)
     speed.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
     _place(speed, 1, 1, 1, 1, -360, -90, -30, -24)
+    nitro_bg = ColorRect.new()
+    nitro_bg.color = Color(0.1, 0.1, 0.12, 0.7)
+    nitro_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    _place(nitro_bg, 1, 1, 1, 1, -230, -106, -30, -94)
+    add_child(nitro_bg)
+    nitro_fill = ColorRect.new()
+    nitro_fill.color = Color(0.35, 0.65, 1.0)
+    nitro_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    _place(nitro_fill, 0, 0, 1, 1, 0, 0, 0, 0)
+    nitro_bg.add_child(nitro_fill)
+    var nl := _label(14)
+    nl.text = "NITRO"
+    nl.reparent(nitro_bg)
+    _place(nl, 0, 0, 0, 0, -56, -5, 0, 14)
+    nitro_bg.visible = false
     _build_pause()
 
 
@@ -57,17 +75,17 @@ func _build_pause() -> void:
     add_child(pause_panel)
     var box := VBoxContainer.new()
     box.add_theme_constant_override("separation", 14)
-    _place(box, 0.5, 0.5, 0.5, 0.5, -160, -140, 160, 140)
+    _place(box, 0.5, 0.5, 0.5, 0.5, -180, -170, 180, 170)
     pause_panel.add_child(box)
     var title := Label.new()
     title.text = "PAUSADO"
     title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     title.add_theme_font_size_override("font_size", 42)
     box.add_child(title)
-    for spec in [["Continuar", _on_resume], ["Tela cheia (F11)", Game.toggle_fullscreen], ["Sair do jogo", _on_quit]]:
+    for spec in [["Continuar", _on_resume], ["Tela cheia (F11)", Game.toggle_fullscreen], ["Novo jogo (apaga o progresso)", _on_new_game], ["Sair do jogo", _on_quit]]:
         var btn := Button.new()
         btn.text = spec[0]
-        btn.custom_minimum_size = Vector2(320, 52)
+        btn.custom_minimum_size = Vector2(360, 52)
         btn.add_theme_font_size_override("font_size", 22)
         btn.pressed.connect(spec[1])
         box.add_child(btn)
@@ -90,6 +108,17 @@ func set_paused(p: bool) -> void:
 
 func _on_resume() -> void:
     set_paused(false)
+
+
+func _on_new_game() -> void:
+    if on_new_game.is_valid():
+        set_paused(false)
+        on_new_game.call()
+
+
+func set_nitro(frac: float, show: bool) -> void:
+    nitro_bg.visible = show
+    nitro_fill.anchor_right = clampf(frac, 0.0, 1.0)
 
 
 func _on_quit() -> void:

@@ -6,6 +6,11 @@ var rig: CameraRig
 var hud: Hud
 var vehicles: Array[Vehicle] = []
 var current_vehicle: Vehicle = null
+var npcs: Array[Npc] = []
+var mission: Mission
+var traffic: Traffic
+var progress: Progress
+var garage: Garage
 
 
 func _ready() -> void:
@@ -20,6 +25,15 @@ func _ready() -> void:
     player.transform = city.player_spawn
     player.spawn_point = city.player_spawn.origin + Vector3.UP
     add_child(player)
+
+    for spot in city.npc_spots:
+        var npc := Npc.new()
+        npc.name = "Npc_" + spot[0]
+        npc.setup(spot[0])
+        npc.transform = spot[1]
+        npc.watch = player
+        add_child(npc)
+        npcs.append(npc)
 
     for spec in [["sedan", city.sedan_spawn], ["rv", city.rv_spawn]]:
         var v := Vehicle.new()
@@ -37,8 +51,32 @@ func _ready() -> void:
     player.cam_rig = rig
     player.model.rotation.y = city.spawn_yaw + PI
 
+    traffic = Traffic.new()
+    traffic.name = "Traffic"
+    add_child(traffic)
+    traffic.setup(self)
+
     hud = Hud.new()
     add_child(hud)
+
+    progress = Progress.new()
+    progress.name = "Progress"
+    if "--autotest" in OS.get_cmdline_user_args():
+        progress.save_path = "user://save_autotest.json"
+        progress.reset()
+    progress.load_game()
+    add_child(progress)
+    hud.on_new_game = _new_game
+
+    mission = Mission.new()
+    mission.name = "Mission"
+    add_child(mission)
+    mission.setup(self)
+
+    garage = Garage.new()
+    garage.name = "Garage"
+    add_child(garage)
+    garage.setup(self)
     Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
     if "--autotest" in OS.get_cmdline_user_args():
@@ -126,9 +164,33 @@ func toggle_vehicle() -> void:
             rig.set_target(near, near.cam_height, near.cam_distance, true)
 
 
+func force_enter(v: Vehicle) -> void:
+    if current_vehicle == v:
+        return
+    if current_vehicle:
+        current_vehicle.driving = false
+    current_vehicle = v
+    v.driving = true
+    player.enter_vehicle()
+    rig.set_target(v, v.cam_height, v.cam_distance, true)
+
+
+func on_interact() -> void:
+    if mission.handle_interact():
+        return
+    if garage.handle_interact():
+        return
+    toggle_vehicle()
+
+
+func _new_game() -> void:
+    progress.reset()
+    get_tree().reload_current_scene()
+
+
 func _unhandled_input(event: InputEvent) -> void:
     if event.is_action_pressed("interact"):
-        toggle_vehicle()
+        on_interact()
     elif event.is_action_pressed("reset_vehicle"):
         if current_vehicle:
             current_vehicle.reset_upright()
@@ -145,7 +207,9 @@ func _process(_delta: float) -> void:
         var kmh := absf(current_vehicle.forward_speed()) * 3.6
         hud.set_speed(kmh, true)
         hud.set_prompt("E - sair do veículo" if current_vehicle.linear_velocity.length() <= 6.0 else "")
+        hud.set_nitro(current_vehicle.nitro / maxf(current_vehicle.nitro_cap, 0.01), current_vehicle.nitro_cap > 0.0)
     else:
         hud.set_speed(0.0, false)
+        hud.set_nitro(0.0, false)
         var near := nearest_vehicle()
         hud.set_prompt("E - entrar no veículo" if near else "")
