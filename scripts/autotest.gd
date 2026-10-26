@@ -122,6 +122,7 @@ func _run() -> void:
     await _shot("17_restaurante_npcs")
     rig.zoom = 1.0
     await _mission_test(city, rv)
+    await _traffic_test(city)
     # aerial
     rig.target = null
     rig.global_position = Vector3(-60, 90, -120)
@@ -237,6 +238,61 @@ func _mission_test(city: City, rv: Vehicle) -> void:
         main.toggle_vehicle()
         await _wait(0.3)
     player.teleport(ex + Vector3(0, 0, 6))
+
+
+func _traffic_test(city: City) -> void:
+    var tr: Traffic = main.traffic
+    var player: Player = main.player
+    var rig: CameraRig = main.rig
+    var c0: Array = []
+    for c in tr.cars:
+        c0.append(c.global_position)
+    var p0: Array = []
+    for p in tr.peds:
+        p0.append(p.global_position)
+    await _wait(4.0)
+    var moved := 0
+    for i in tr.cars.size():
+        if tr.cars[i].global_position.distance_to(c0[i]) > 3.0:
+            moved += 1
+    var walked := 0
+    for i in tr.peds.size():
+        if tr.peds[i].global_position.distance_to(p0[i]) > 1.0:
+            walked += 1
+    print("[autotest] traffic cars moved=", moved, "/", tr.cars.size(), " peds walked=", walked, "/", tr.peds.size())
+    var car: TrafficCar = tr.cars[0]
+    var cf := TrafficCar.d3(car.dir)
+    var spot := car.global_position + cf * 16.0 + TrafficCar.right(car.dir) * 4.2
+    spot.y = City.CURB + 0.1
+    player.teleport(spot)
+    rig.yaw = city_yaw_toward(spot, car.global_position + cf * 6.0)
+    rig.pitch = -0.18
+    await _wait(1.0)
+    await _shot("27_ruas")
+    var ped: Pedestrian = tr.peds[0]
+    var sedan: Vehicle = main.vehicles[0]
+    var fwd := ped.global_transform.basis.z
+    sedan.global_transform = Transform3D(Basis(Vector3.UP, atan2(fwd.x, fwd.z)), ped.global_position - fwd * 5.0 + Vector3.UP * 0.8)
+    sedan.reset_physics_interpolation()
+    sedan.linear_velocity = fwd * 9.0
+    for i in 20:
+        if ped.down_time > 0.0:
+            break
+        await _wait(0.1)
+    print("[autotest] ped knocked down=", ped.down_time > 0.0)
+    var side := ped.global_transform.basis.x
+    player.teleport(ped.global_position + side * 6.0 + Vector3.UP * 0.3)
+    rig.yaw = city_yaw_toward(player.global_position, ped.global_position)
+    rig.pitch = -0.35
+    await _wait(0.6)
+    await _shot("28_atropelado")
+    await _wait(4.5)
+    print("[autotest] ped got up=", ped.down_time <= 0.0, " collision=", not ped.body_shape.disabled)
+    var stuck := 0
+    for c in tr.cars:
+        if c.blocked_time > 3.0:
+            stuck += 1
+    print("[autotest] traffic stuck>3s=", stuck)
 
 
 func city_yaw_toward(from: Vector3, to: Vector3) -> float:

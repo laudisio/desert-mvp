@@ -20,7 +20,7 @@ var _phase := 0.0
 
 func _ready() -> void:
     collision_layer = 2
-    collision_mask = 1 | 4
+    collision_mask = 1 | 4 | 8
     floor_snap_length = 0.3
     floor_max_angle = deg_to_rad(50.0)
     var shape := CollisionShape3D.new()

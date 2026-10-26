@@ -79,7 +79,7 @@ func build() -> void:
     var hz := line(HWY_IDX)
     player_spawn = T(Vector3(-2.0, CURB + 0.05, hz + ROAD / 2.0 + 1.0))
     spawn_yaw = -PI / 2.0
-    sedan_spawn = T(Vector3(3.0, 0.4, hz + ROAD / 2.0 - 1.6), PI / 2.0)
+    sedan_spawn = T(Vector3(3.0, 0.4, hz + ROAD / 2.0 - 1.1), PI / 2.0)
     var rx := line(4) + PITCH / 2.0
     var rz := line(1) + PITCH / 2.0
     rv_spawn = T(Vector3(rx, CURB + 0.6, rz), PI / 2.0)

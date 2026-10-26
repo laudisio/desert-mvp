@@ -8,6 +8,7 @@ var vehicles: Array[Vehicle] = []
 var current_vehicle: Vehicle = null
 var npcs: Array[Npc] = []
 var mission: Mission
+var traffic: Traffic
 
 
 func _ready() -> void:
@@ -47,6 +48,11 @@ func _ready() -> void:
     rig.yaw = city.spawn_yaw
     player.cam_rig = rig
     player.model.rotation.y = city.spawn_yaw + PI
+
+    traffic = Traffic.new()
+    traffic.name = "Traffic"
+    add_child(traffic)
+    traffic.setup(self)
 
     hud = Hud.new()
     add_child(hud)
